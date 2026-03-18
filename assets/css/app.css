@@ -1,0 +1,367 @@
+/* ============================================================
+   AESAN Checker — Stylesheet v2
+   ============================================================ */
+
+:root {
+  --azul:    #1A5276;
+  --azul-d:  #154360;
+  --azul-l:  #D6EAF8;
+  --rojo:    #C0392B;
+  --verde:   #1E8449;
+  --naranja: #E67E22;
+  --gris-f:  #F4F6F6;
+  --gris-b:  #BDC3C7;
+  --sbar-w:  230px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: .92rem;
+  background: #f0f2f5;
+  color: #2C3E50;
+}
+
+/* ── SIDEBAR ─────────────────────────────────────────────────── */
+.sidebar {
+  width: var(--sbar-w);
+  min-height: 100vh;
+  background: var(--azul);
+  position: fixed;
+  top: 0; left: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: 2px 0 8px rgba(0,0,0,.15);
+}
+
+.sidebar .brand {
+  padding: 1.1rem 1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  border-bottom: 1px solid rgba(255,255,255,.15);
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  white-space: nowrap;
+}
+
+.sidebar .nav-section {
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: rgba(255,255,255,.4);
+  padding: .9rem 1rem .25rem;
+  margin-top: .25rem;
+}
+
+.sidebar .nav-link {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  color: rgba(255,255,255,.78);
+  padding: .5rem 1rem;
+  border-radius: 6px;
+  margin: 2px 8px;
+  text-decoration: none;
+  font-size: .88rem;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+
+.sidebar .nav-link:hover {
+  background: rgba(255,255,255,.15);
+  color: #fff;
+}
+
+.sidebar .nav-link.active {
+  background: rgba(255,255,255,.2);
+  color: #fff;
+  font-weight: 600;
+}
+
+.sidebar .nav-link i {
+  font-size: 1rem;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sidebar-footer {
+  padding: .9rem 1rem;
+  border-top: 1px solid rgba(255,255,255,.15);
+  font-size: .8rem;
+  color: rgba(255,255,255,.6);
+  margin-top: auto;
+}
+
+/* ── MAIN CONTENT ────────────────────────────────────────────── */
+.main-content {
+  margin-left: var(--sbar-w);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid #dee2e6;
+  padding: .75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+
+.topbar h5 {
+  margin: 0;
+  font-weight: 700;
+  color: var(--azul);
+}
+
+.page-body {
+  padding: 1.5rem;
+  flex: 1;
+}
+
+/* ── FLASH MESSAGES ──────────────────────────────────────────── */
+.flash-msg {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 9999;
+  min-width: 320px;
+  max-width: 480px;
+}
+
+/* ── STAT CARDS ──────────────────────────────────────────────── */
+.stat-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 1rem 1.2rem;
+  border-left: 4px solid var(--azul);
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  transition: transform .2s, box-shadow .2s;
+}
+
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+.stat-card.verde { border-left-color: var(--verde); }
+.stat-card.rojo  { border-left-color: var(--rojo); }
+.stat-card.nara  { border-left-color: var(--naranja); }
+
+.stat-card .stat-num {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--azul);
+}
+
+.stat-card.verde .stat-num { color: var(--verde); }
+.stat-card.rojo  .stat-num { color: var(--rojo); }
+.stat-card.nara  .stat-num { color: var(--naranja); }
+
+/* ── TABLA PRODUCTOS ─────────────────────────────────────────── */
+.tabla-productos thead th {
+  background: var(--azul);
+  color: #fff;
+  font-weight: 600;
+  border: none;
+  white-space: nowrap;
+}
+
+.tabla-productos td { vertical-align: middle; }
+.tabla-productos tr.estado-ok         { background: #f0faf4; }
+.tabla-productos tr.estado-incompleto { background: #fff8f8; }
+
+/* ── PROGRESS BAR ────────────────────────────────────────────── */
+.prog-wrap {
+  width: 100%;
+  background: #e9ecef;
+  border-radius: 99px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.prog-bar {
+  height: 7px;
+  border-radius: 99px;
+  background: var(--verde);
+  transition: width .4s ease;
+}
+
+.prog-bar.bajo   { background: var(--rojo); }
+.prog-bar.medio  { background: var(--naranja); }
+
+/* ── WIZARD ──────────────────────────────────────────────────── */
+.wizard-steps {
+  display: flex;
+  margin-bottom: 1.5rem;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+
+.wizard-step {
+  flex: 1;
+  text-align: center;
+  padding: .65rem .4rem;
+  background: #e9ecef;
+  font-size: .78rem;
+  font-weight: 600;
+  color: #6c757d;
+  text-decoration: none;
+  transition: background .15s;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%);
+  margin-right: 2px;
+}
+
+.wizard-step:first-child {
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+  border-radius: 8px 0 0 8px;
+}
+
+.wizard-step:last-child {
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 10px 50%);
+  border-radius: 0 8px 8px 0;
+  margin-right: 0;
+}
+
+.wizard-step.active    { background: var(--azul); color: #fff; }
+.wizard-step.done      { background: var(--verde); color: #fff; }
+.wizard-step.has-error { background: var(--rojo);  color: #fff; }
+.wizard-step:hover:not(.active):not(.done) { background: #d0d5db; }
+
+.wizard-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.8rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,.07);
+}
+
+/* ── FORM FIELDS AESAN ───────────────────────────────────────── */
+.campo-aesan label { font-weight: 600; color: var(--azul); }
+.campo-aesan .form-text { font-size: .77rem; }
+.campo-aesan.critico label::after { content: ' *'; color: var(--rojo); font-weight: 400; }
+
+/* ── ALÉRGENOS TAGS ──────────────────────────────────────────── */
+.alg-tag {
+  display: inline-block;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  color: #856404;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: .78rem;
+  margin: 3px;
+  cursor: pointer;
+  transition: all .15s;
+  user-select: none;
+}
+
+.alg-tag:hover  { opacity: .85; }
+.alg-tag.active { background: var(--rojo); border-color: var(--rojo); color: #fff; }
+
+/* ── PREVIEW BLOQUE AESAN ────────────────────────────────────── */
+.preview-aesan {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-left: 4px solid var(--azul);
+  border-radius: 8px;
+  padding: 1.2rem;
+  font-size: .88rem;
+}
+
+.preview-aesan h3 { font-size: 1rem; color: var(--azul); margin-bottom: .8rem; }
+
+/* ── BLOQUE AESAN (en preview y exportado) ───────────────────── */
+.info-alimentaria { font-family: sans-serif; font-size: .9rem; line-height: 1.6; }
+.info-alimentaria h3 {
+  font-size: 1rem; color: var(--azul);
+  border-bottom: 2px solid var(--azul);
+  padding-bottom: .3rem; margin-bottom: .8rem;
+}
+.info-alimentaria .alergeno { font-weight: 700; color: var(--rojo); }
+.info-alimentaria ul { padding-left: 1.2rem; margin: .3rem 0; }
+
+.tabla-nutricional { width: 100%; border-collapse: collapse; font-size: .85rem; margin-top: .5rem; }
+.tabla-nutricional caption { font-weight: 700; text-align: left; padding-bottom: .3rem; }
+.tabla-nutricional th, .tabla-nutricional td { border: 1px solid #dee2e6; padding: 4px 10px; }
+.tabla-nutricional thead th { background: #343a40; color: #fff; }
+
+/* ── LOGIN ───────────────────────────────────────────────────── */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--azul) 0%, var(--azul-d) 100%);
+  padding: 1rem;
+}
+
+.login-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.25);
+}
+
+/* ── DROPZONE ────────────────────────────────────────────────── */
+.dropzone {
+  border: 2px dashed #adb5bd;
+  border-radius: 12px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s, transform .2s;
+  background: #fafafa;
+}
+
+.dropzone:hover, .dropzone.drag-over {
+  border-color: var(--azul);
+  background: #eaf0fb;
+  transform: scale(1.01);
+}
+
+/* ── PAGINACIÓN ──────────────────────────────────────────────── */
+.pagination-sm .page-link { font-size: .8rem; padding: .3rem .6rem; }
+
+/* ── BADGES ──────────────────────────────────────────────────── */
+.badge { font-weight: 500; }
+
+/* ── CARDS GENERALES ─────────────────────────────────────────── */
+.card { border: 1px solid rgba(0,0,0,.08); border-radius: 10px; }
+.card-header { padding: .8rem 1rem; border-bottom: 1px solid rgba(0,0,0,.07); }
+
+/* ── RESPONSIVE ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100%;
+    min-height: auto;
+    position: relative;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .main-content { margin-left: 0; }
+  .sidebar .nav-link { padding: .4rem .7rem; }
+  .page-body { padding: 1rem; }
+  .wizard-step { font-size: .7rem; padding: .5rem .2rem; }
+}
+
+/* ── UTILITIES ───────────────────────────────────────────────── */
+.text-azul  { color: var(--azul) !important; }
+.bg-azul    { background: var(--azul) !important; }
+.border-azul{ border-color: var(--azul) !important; }
+.font-monospace { font-family: 'Courier New', monospace; }
+
+code { background: #f0f2f5; padding: 1px 5px; border-radius: 3px;
+       font-size: .85em; color: var(--rojo); }
