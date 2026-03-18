@@ -101,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
     }
 
     $siguiente = $paso + 1;
-    if ($siguiente > 5 || $estadoNuevo === 'ok') {
+    if ($siguiente > 5) {
         flash('Producto guardado correctamente.', 'success');
         redirect("productos.php?imp={$impId}");
     }

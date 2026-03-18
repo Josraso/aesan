@@ -107,17 +107,20 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
 </div>
 
 <!-- Stats rápidos -->
-<div class="row g-2 mb-3">
+<div class="row g-3 mb-3">
   <?php foreach ([
-    ['Completos',   $cOk,   'success', 'estado=ok'],
-    ['Incompletos', $cInc,  'danger',  'estado=incompleto'],
-    ['Pendientes',  $cPend, 'secondary','estado=pendiente'],
-    ['Exportados',  $cExp,  'info',    ''],
-  ] as [$lbl, $n, $color, $qp]): ?>
+    ['Completos',   $cOk,   'bi-check-circle',       'verde', 'estado=ok'],
+    ['Incompletos', $cInc,  'bi-exclamation-circle',  'rojo',  'estado=incompleto'],
+    ['Pendientes',  $cPend, 'bi-clock',               '',      'estado=pendiente'],
+    ['Exportados',  $cExp,  'bi-download',            'nara',  ''],
+  ] as [$lbl, $n, $ico, $cls, $qp]): ?>
   <div class="col-6 col-md-3">
-    <<?= $qp ? "a href=\"?imp={$impId}&{$qp}\"" : "div" ?> class="stat-card text-center p-2 text-decoration-none <?= $color==='success'?'verde':($color==='danger'?'rojo':($color==='warning'?'nara':'')) ?>">
-      <div class="fw-bold fs-4 text-<?= $color ?>"><?= $n ?></div>
-      <div class="small text-muted"><?= $lbl ?></div>
+    <<?= $qp ? "a href=\"?imp={$impId}&{$qp}\"" : "div" ?> class="stat-card <?= $cls ?> d-flex align-items-center gap-3 text-decoration-none">
+      <i class="bi <?= $ico ?>" style="font-size:1.8rem;opacity:.5"></i>
+      <div>
+        <div class="stat-num"><?= $n ?></div>
+        <div class="text-muted small"><?= $lbl ?></div>
+      </div>
     </<?= $qp ? 'a' : 'div' ?>>
   </div>
   <?php endforeach; ?>
