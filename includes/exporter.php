@@ -80,7 +80,9 @@ class Exporter {
                 . htmlspecialchars($c['peso_unidad']) . '</p>';
         }
 
+        // Embeber campos + tipo codificados para que un re-import los restaure automáticamente
         $html  = "\n<!-- AESAN_BLOCK_START -->\n";
+        $html .= '<!-- AESAN_CAMPOS:' . base64_encode(json_encode(array_merge($campos, ['tipo_validado' => $tipo]))) . " -->\n";
         $html .= "<div class=\"info-alimentaria\">\n";
         $html .= "  <h3>Información alimentaria</h3>\n";
         if ($estadoCongHtml)  $html .= "  {$estadoCongHtml}\n";

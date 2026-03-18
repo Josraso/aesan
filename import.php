@@ -93,18 +93,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['excel']['name'])) {
             $descCorta = trim((string)($row[$colMap['desc_corta']] ?? ''));
             $descLarga = trim((string)($row[$colMap['desc_larga']] ?? ''));
 
-            $tipoDetect = Validator::detectarTipo($nombre, $descCorta, $descLarga);
-            $especieDet = Validator::detectarEspecie($nombre, $descCorta . ' ' . strip_tags($descLarga));
+            // ── Detectar si la descripción ya tiene un bloque AESAN previo ──────
+            $camposRestaurados = null;
+            if (preg_match('/<!-- AESAN_CAMPOS:([A-Za-z0-9+\/=]+) -->/', $descLarga, $mc)) {
+                $decoded = json_decode(base64_decode($mc[1]), true);
+                if (is_array($decoded) && !empty($decoded)) {
+                    $camposRestaurados = $decoded;
+                }
+            }
 
-            $campos = ['especie' => $especieDet];
-            $textoPlano = strtolower(strip_tags($descLarga . ' ' . $descCorta));
+            if ($camposRestaurados !== null) {
+                // Producto ya procesado: restaurar campos_json completo
+                $campos     = $camposRestaurados;
+                $tipoDetect = $campos['tipo_validado'] ?? Validator::detectarTipo($nombre, $descCorta, $descLarga);
+            } else {
+                // Producto nuevo: auto-detección básica
+                $tipoDetect = Validator::detectarTipo($nombre, $descCorta, $descLarga);
+                $especieDet = Validator::detectarEspecie($nombre, $descCorta . ' ' . strip_tags($descLarga));
 
-            if (preg_match('/(conservar\s+(?:entre\s+)?[\+\-]?\d+[^.<]{0,60})/i', $textoPlano, $m))
-                $campos['conservacion'] = ucfirst(trim($m[1]));
+                $campos = ['especie' => $especieDet];
+                $textoPlano = strtolower(strip_tags($descLarga . ' ' . $descCorta));
 
-            if (preg_match('/ingredientes\s*:\s*([^<\n]{10,400})/i', strip_tags($descLarga), $m)) {
-                $campos['ingredientes']    = trim($m[1]);
-                $campos['alergenos_lista'] = implode(',', Validator::detectarAlergenos($campos['ingredientes']));
+                if (preg_match('/(conservar\s+(?:entre\s+)?[\+\-]?\d+[^.<]{0,60})/i', $textoPlano, $m))
+                    $campos['conservacion'] = ucfirst(trim($m[1]));
+
+                if (preg_match('/ingredientes\s*:\s*([^<\n]{10,400})/i', strip_tags($descLarga), $m)) {
+                    $campos['ingredientes']    = trim($m[1]);
+                    $campos['alergenos_lista'] = implode(',', Validator::detectarAlergenos($campos['ingredientes']));
+                }
             }
 
             $prodData = ['tipo_validado'=>$tipoDetect,'tipo_detectado'=>$tipoDetect,'campos_json'=>json_encode($campos)];
