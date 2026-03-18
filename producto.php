@@ -1,5 +1,5 @@
 <?php
-// producto.php – Editor wizard con historial de cambios y notificaciones
+// producto.php – Editor wizard con historial, sugerencias contextuales y bloqueo de edición
 
 require_once __DIR__ . '/includes/config_base.php';
 require_once __DIR__ . '/includes/auth.php';
@@ -10,6 +10,7 @@ require_once __DIR__ . '/includes/exporter.php';
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/historial.php';
 require_once __DIR__ . '/includes/mailer.php';
+require_once __DIR__ . '/includes/sugerencias.php';
 
 $prodId = (int)($_GET['id']  ?? 0);
 $impId  = (int)($_GET['imp'] ?? 0);
@@ -34,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='preview') {
 // ── GUARDAR ──────────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
 
-    $camposAntes = $campos; // para historial
+    $camposAntes = $campos;
 
     $nuevos = $_POST;
     unset($nuevos['action'], $nuevos['paso'], $nuevos['_token'], $nuevos['solo_guardar']);
@@ -44,12 +45,11 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
     $descSugerida = $nuevos['desc_corta_sugerida']       ?? $prod['desc_corta_sugerida'];
     unset($nuevos['tipo_validado'], $nuevos['desc_corta_usar'], $nuevos['desc_corta_sugerida']);
 
-    // Merge: actualizar solo campos no vacíos (permite guardar parcialmente)
     foreach ($nuevos as $k => $v) {
         if ($v !== '' && $v !== null) $campos[$k] = $v;
     }
 
-    // Normalizar origen_pais a partir de campos específicos de especie
+    // Normalizar origen_pais
     if (empty($campos['origen_pais'])) {
         $campos['origen_pais'] = $campos['origen_nacido']
             ?? $campos['origen_cria']
@@ -57,13 +57,13 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
             ?? '';
     }
 
-    // nutricional: marcar como cubierto si hay al menos un valor energético
+    // nutricional: marcar como cubierto si hay valor energético
     if (empty($campos['nutricional']) && (!empty($campos['energia_kcal']) || !empty($campos['energia_kj']))) {
         $campos['nutricional'] = 'ok';
     }
 
-    $prodData = ['tipo_validado'=>$tipoNuevo,'tipo_detectado'=>$tipoNuevo,'campos_json'=>json_encode($campos)];
-    $val      = Validator::validar($prodData);
+    $prodData    = ['tipo_validado'=>$tipoNuevo,'tipo_detectado'=>$tipoNuevo,'campos_json'=>json_encode($campos)];
+    $val         = Validator::validar($prodData);
     $estadoNuevo = $val['estado'];
 
     DB::update('productos', [
@@ -74,12 +74,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
         'desc_corta_sugerida' => $descSugerida,
     ], 'id=?', [$prodId]);
 
-    // Historial
     $detalle = Historial::describir($camposAntes, $campos);
     $accion  = $estadoNuevo === 'ok' ? 'completado' : 'editado';
     Historial::registrar($prodId, Auth::uid(), $accion, "Paso {$paso}: {$detalle}");
 
-    // Email si se completó por primera vez
     if ($estadoNuevo === 'ok' && $prod['estado'] !== 'ok') {
         $imp    = DB::row('SELECT * FROM importaciones WHERE id=?', [$impId]);
         $admins = DB::rows("SELECT email FROM usuarios WHERE rol='admin' AND activo=1");
@@ -88,10 +86,9 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
         }
     }
 
-    // Actualizar contadores de la importación
     if ($impId) {
-        $cOk  = DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado="ok"',         [$impId])['c'];
-        $cInc = DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado!="ok"',        [$impId])['c'];
+        $cOk  = DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado="ok"',  [$impId])['c'];
+        $cInc = DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado!="ok"', [$impId])['c'];
         DB::update('importaciones', ['ok'=>$cOk,'incompletos'=>$cInc], 'id=?', [$impId]);
     }
 
@@ -102,32 +99,49 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
 
     $siguiente = $paso + 1;
     if ($siguiente > 5) {
+        // Liberar bloqueo al finalizar
+        try { DB::q("DELETE FROM producto_bloqueos WHERE producto_id=? AND usuario_id=?", [$prodId, Auth::uid()]); } catch(\Exception $e) {}
         flash('Producto guardado correctamente.', 'success');
         redirect("productos.php?imp={$impId}");
     }
     redirect("producto.php?id={$prodId}&imp={$impId}&paso={$siguiente}");
 }
 
-// Recargar
+// ── BLOQUEO DE EDICIÓN ────────────────────────────────────────────────────────
+$bloqueado    = false;
+$bloqueadoPor = null;
+try {
+    DB::q("DELETE FROM producto_bloqueos WHERE TIMESTAMPDIFF(SECOND, updated_at, NOW()) > 90");
+    $lockRow = DB::row('SELECT * FROM producto_bloqueos WHERE producto_id=?', [$prodId]);
+    if ($lockRow && (int)$lockRow['usuario_id'] !== Auth::uid()) {
+        $bloqueado    = true;
+        $bloqueadoPor = $lockRow['usuario_nombre'];
+    } else {
+        DB::q("INSERT INTO producto_bloqueos (producto_id, usuario_id, usuario_nombre, updated_at)
+               VALUES (?,?,?,NOW())
+               ON DUPLICATE KEY UPDATE
+                 usuario_id=VALUES(usuario_id),
+                 usuario_nombre=VALUES(usuario_nombre),
+                 updated_at=NOW()",
+              [$prodId, Auth::uid(), Auth::nombre()]);
+    }
+} catch (\Exception $e) { /* tabla no existe aún → ignorar */ }
+
+// ── Recargar producto ─────────────────────────────────────────────────────────
 $prod   = DB::row('SELECT * FROM productos WHERE id=?', [$prodId]);
 $campos = json_decode($prod['campos_json'] ?? '{}', true) ?: [];
 $tipo   = $prod['tipo_validado'] ?? 'otro';
 $reqs   = Validator::getCamposRequeridos($tipo);
 $val    = Validator::validar($prod);
 
-// Qué pasos tienen errores
 $pasosConError = [];
 foreach ($reqs as $key => $info) {
     if (empty($campos[$key]) && $info['critico']) $pasosConError[$info['paso']] = true;
 }
 
-// Historial
-$historial = Historial::obtener($prodId, 10);
-
-// JS: alérgenos
+$historial   = Historial::obtener($prodId, 10);
 $alergenosJS = json_encode(Validator::ALERGENOS);
 
-// Sugerencia desc corta
 $sugerencia = '';
 if (in_array($tipo, ['carne_picada','preparado_carne'])) {
     $d  = $campos['denominacion']    ?? '';
@@ -136,15 +150,38 @@ if (in_array($tipo, ['carne_picada','preparado_carne'])) {
     if ($d) $sugerencia = $d . ($lg||$lc ? " (≤{$lg}% grasa" . ($lc?", ≤{$lc}% colágeno/prot.":"") . ")" : "");
 }
 
+// Sugerencias JS
+$sugerenciasJS = Sugerencias::toJson();
+
 layout_start('Editar — ' . $prod['nombre']);
 ?>
-<script>window.ALERGENOS = <?= $alergenosJS ?>;</script>
+<script>
+window.ALERGENOS   = <?= $alergenosJS ?>;
+window.SUGERENCIAS = <?= $sugerenciasJS ?>;
+window.PROD_ID     = <?= $prodId ?>;
+window.BASE_URL    = '<?= BASE_URL ?>';
+</script>
 
 <nav class="mb-3"><ol class="breadcrumb small mb-0">
   <li class="breadcrumb-item"><a href="<?= BASE_URL ?>/dashboard.php">Dashboard</a></li>
   <li class="breadcrumb-item"><a href="<?= BASE_URL ?>/productos.php?imp=<?= $impId ?>">Importación #<?= $impId ?></a></li>
   <li class="breadcrumb-item active"><?= h($prod['nombre']) ?></li>
 </ol></nav>
+
+<?php if ($bloqueado): ?>
+<div class="alert alert-warning d-flex align-items-center gap-2 mb-3" role="alert">
+  <i class="bi bi-lock-fill fs-5"></i>
+  <div>
+    <strong>Modo solo lectura</strong> — <strong><?= h($bloqueadoPor) ?></strong> está editando este producto en este momento.
+    El formulario está desactivado para evitar conflictos.
+  </div>
+  <?php if (Auth::isAdmin()): ?>
+  <button type="button" class="btn btn-sm btn-outline-warning ms-auto" id="btn-forzar-edicion">
+    <i class="bi bi-unlock"></i> Forzar edición (admin)
+  </button>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
   <div>
@@ -179,7 +216,7 @@ layout_start('Editar — ' . $prod['nombre']);
 <div class="row g-4">
   <!-- Formulario principal -->
   <div class="col-lg-8">
-    <form method="post" id="wizard-form">
+    <form method="post" id="wizard-form" <?= $bloqueado ? 'style="pointer-events:none;opacity:.75"' : '' ?>>
       <input type="hidden" name="action" value="save">
       <input type="hidden" name="paso"   value="<?= $paso ?>">
       <input type="hidden" name="tipo_validado" id="tipo_validado_hidden" value="<?= h($tipo) ?>">
@@ -221,30 +258,53 @@ layout_start('Editar — ' . $prod['nombre']);
 
         <div class="col-12 campo-aesan critico">
           <label class="form-label">Denominación legal del alimento *</label>
-          <input type="text" name="denominacion" class="form-control"
+          <input type="text" name="denominacion" id="denominacion" class="form-control"
                  value="<?= h($campos['denominacion'] ?? '') ?>"
                  placeholder="Ej: Carne fresca de vacuno. Lomo alto madurado.">
           <div class="form-text text-muted">Denominación tal como debe aparecer en la ficha del producto.</div>
+          <!-- Sugerencias de denominación (JS dinámico) -->
+          <div class="mt-2" id="wrap-denom-sugerencias">
+            <div class="d-flex align-items-center gap-2 mb-1">
+              <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size:.72rem">
+                <i class="bi bi-stars"></i> Denominaciones legales sugeridas
+              </span>
+              <span class="text-muted" style="font-size:.75rem">Clic para rellenar</span>
+            </div>
+            <div id="denom-pills" class="d-flex flex-wrap gap-1"></div>
+          </div>
         </div>
 
+        <!-- Límites grasa / colágeno (carne_picada y preparado_carne) -->
         <div class="col-md-4" data-tipo="carne_picada,preparado_carne">
           <label class="form-label campo-aesan critico">Límite máx. grasa (%) *</label>
-          <input type="number" name="limite_grasa" class="form-control"
+          <input type="number" name="limite_grasa" id="limite_grasa" class="form-control"
                  min="0" max="60" step="0.1" value="<?= h($campos['limite_grasa'] ?? '') ?>" placeholder="Ej: 20">
-          <div class="form-text">Vacuno ≤20% | Porcino ≤30% | Ovino ≤25%</div>
+          <div class="form-text">Vacuno ≤20% | Porcino ≤30% | Aves ≤15%</div>
+          <!-- Quickfill legal por especie -->
+          <div id="pills-grasa" class="mt-1 d-flex flex-wrap gap-1"></div>
         </div>
 
         <div class="col-md-4" data-tipo="carne_picada,preparado_carne">
           <label class="form-label campo-aesan critico">Límite colágeno/proteína (%) *</label>
-          <input type="number" name="limite_colageno" class="form-control"
+          <input type="number" name="limite_colageno" id="limite_colageno" class="form-control"
                  min="0" max="30" step="0.1" value="<?= h($campos['limite_colageno'] ?? '') ?>" placeholder="Ej: 15">
-          <div class="form-text">Vacuno/Ovino ≤15% | Porcino/Mixto ≤18%</div>
+          <div class="form-text">Vacuno/Ovino ≤15% | Porcino ≤18% | Aves ≤10%</div>
+          <!-- Quickfill legal por especie -->
+          <div id="pills-colageno" class="mt-1 d-flex flex-wrap gap-1"></div>
         </div>
 
         <div class="col-md-4">
           <label class="form-label">Peso neto / presentación</label>
-          <input type="text" name="peso_unidad" class="form-control"
+          <input type="text" name="peso_unidad" id="peso_unidad" class="form-control"
                  value="<?= h($campos['peso_unidad'] ?? '') ?>" placeholder="Ej: 400 g, 1 kg">
+          <!-- Quickfill pesos comunes -->
+          <div class="mt-1 d-flex flex-wrap gap-1">
+            <?php foreach (Sugerencias::$pesos as $p): ?>
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    style="font-size:.7rem;padding:1px 6px"
+                    onclick="fillField('peso_unidad','<?= $p ?>')"><?= $p ?></button>
+            <?php endforeach; ?>
+          </div>
         </div>
 
         <?php if ($sugerencia && $sugerencia !== $prod['desc_corta_original']): ?>
@@ -271,12 +331,11 @@ layout_start('Editar — ' . $prod['nombre']);
       <h5 class="mb-1"><i class="bi bi-geo-alt"></i> Origen del producto</h5>
       <p class="text-muted small mb-3">
         Las menciones de origen deben figurar <strong>de forma expresa</strong> en la ficha.
-        No es suficiente deducirlas del nombre o la raza.
       </p>
       <input type="hidden" name="especie" value="<?= h($especie) ?>">
 
       <!-- Atajo: mismo país para todo -->
-      <div class="col-12 mb-3" id="wrap-mismo-pais">
+      <div class="mb-3" id="wrap-mismo-pais">
         <div class="input-group input-group-sm" style="max-width:340px">
           <span class="input-group-text bg-light"><i class="bi bi-lightning-fill text-warning"></i></span>
           <input type="text" id="mismo-pais" class="form-control"
@@ -284,6 +343,16 @@ layout_start('Editar — ' . $prod['nombre']);
           <button type="button" class="btn btn-outline-secondary" id="btn-mismo-pais">Aplicar a todos</button>
         </div>
         <div class="form-text">Útil cuando nacido, criado y sacrificado es en el mismo país.</div>
+        <!-- Países más comunes -->
+        <div class="mt-1 d-flex flex-wrap gap-1">
+          <?php foreach (Sugerencias::$paises as $pais): ?>
+          <button type="button" class="btn btn-xs btn-outline-primary"
+                  style="font-size:.72rem;padding:2px 8px"
+                  onclick="document.getElementById('mismo-pais').value='<?= $pais ?>'; document.getElementById('btn-mismo-pais').click()">
+            <?= $pais ?>
+          </button>
+          <?php endforeach; ?>
+        </div>
       </div>
 
       <div class="row g-3">
@@ -293,7 +362,6 @@ layout_start('Editar — ' . $prod['nombre']);
           <div class="alert alert-info py-2 small">
             <strong>Carne de vacuno</strong> — Reglamento (CE) 1760/2000:<br>
             Se requieren <em>Nacido en / Criado en / Sacrificado en</em>.
-            Si los tres coinciden el sistema generará: <code>Origen: España (nacido, criado y sacrificado en España)</code>.
           </div>
         </div>
         <?php foreach (['origen_nacido'=>'Nacido en','origen_criado'=>'Criado en','origen_sacrificado'=>'Sacrificado en'] as $k=>$lbl): ?>
@@ -301,6 +369,14 @@ layout_start('Editar — ' . $prod['nombre']);
           <label class="form-label"><?= $lbl ?> *</label>
           <input type="text" name="<?= $k ?>" id="<?= $k ?>" class="form-control origen-field"
                  value="<?= h($campos[$k] ?? '') ?>" placeholder="España">
+          <!-- País quickfill -->
+          <div class="mt-1 d-flex flex-wrap gap-1">
+            <?php foreach (['España','Francia','Alemania','Italia','Irlanda','Polonia'] as $pais): ?>
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    style="font-size:.68rem;padding:1px 5px"
+                    onclick="fillField('<?= $k ?>','<?= $pais ?>')"><?= $pais ?></button>
+            <?php endforeach; ?>
+          </div>
         </div>
         <?php endforeach; ?>
         <?php endif; ?>
@@ -310,19 +386,22 @@ layout_start('Editar — ' . $prod['nombre']);
           <div class="alert alert-info py-2 small">
             <strong>Porcino / Aves / Ovino</strong> — Reglamento (UE) 1337/2013:<br>
             Se requieren <em>País de cría</em> y <em>País de sacrificio</em>.
-            Si coinciden se generará: <code>Origen: España (criado y sacrificado en España)</code>.
           </div>
         </div>
+        <?php foreach (['origen_cria'=>'País de cría','origen_sacrificado'=>'País de sacrificio'] as $k=>$lbl): ?>
         <div class="col-md-6 campo-aesan critico origen-otros">
-          <label class="form-label">País de cría *</label>
-          <input type="text" name="origen_cria" id="origen_cria" class="form-control origen-field"
-                 value="<?= h($campos['origen_cria'] ?? '') ?>" placeholder="España">
+          <label class="form-label"><?= $lbl ?> *</label>
+          <input type="text" name="<?= $k ?>" id="<?= $k ?>" class="form-control origen-field"
+                 value="<?= h($campos[$k] ?? '') ?>" placeholder="España">
+          <div class="mt-1 d-flex flex-wrap gap-1">
+            <?php foreach (['España','Francia','Alemania','Italia','Países Bajos','Polonia','Dinamarca'] as $pais): ?>
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    style="font-size:.68rem;padding:1px 5px"
+                    onclick="fillField('<?= $k ?>','<?= $pais ?>')"><?= $pais ?></button>
+            <?php endforeach; ?>
+          </div>
         </div>
-        <div class="col-md-6 campo-aesan critico origen-otros">
-          <label class="form-label">País de sacrificio *</label>
-          <input type="text" name="origen_sacrificado" id="origen_sacrificado" class="form-control origen-field"
-                 value="<?= h($campos['origen_sacrificado'] ?? '') ?>" placeholder="España">
-        </div>
+        <?php endforeach; ?>
         <?php endif; ?>
 
         <div class="col-md-6 campo-aesan critico origen-generico"
@@ -330,6 +409,13 @@ layout_start('Editar — ' . $prod['nombre']);
           <label class="form-label">País de origen *</label>
           <input type="text" name="origen_pais" id="origen_pais" class="form-control origen-field"
                  value="<?= h($campos['origen_pais'] ?? '') ?>" placeholder="España">
+          <div class="mt-1 d-flex flex-wrap gap-1">
+            <?php foreach (Sugerencias::$paises as $pais): ?>
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    style="font-size:.68rem;padding:1px 5px"
+                    onclick="fillField('origen_pais','<?= $pais ?>')"><?= $pais ?></button>
+            <?php endforeach; ?>
+          </div>
         </div>
       </div>
 
@@ -338,11 +424,32 @@ layout_start('Editar — ' . $prod['nombre']);
       <h5 class="mb-1"><i class="bi bi-list-ul"></i> Ingredientes y alérgenos</h5>
       <p class="text-muted small mb-3">Los alérgenos se detectan automáticamente al escribir y se resaltarán en el HTML exportado.</p>
       <div class="row g-3">
+
+        <?php
+        $plantillaIngredientes = Sugerencias::getIngredientes($tipo, $campos['especie'] ?? '_');
+        ?>
+        <?php if ($plantillaIngredientes): ?>
+        <div class="col-12">
+          <div class="alert alert-primary py-2 d-flex align-items-center justify-content-between gap-2">
+            <div>
+              <i class="bi bi-stars text-primary"></i>
+              <strong>Plantilla legal para <?= Validator::labelTipo($tipo) ?></strong>
+              <div class="small text-muted mt-1 font-monospace"><?= h($plantillaIngredientes) ?></div>
+            </div>
+            <button type="button" class="btn btn-sm btn-primary flex-shrink-0"
+                    onclick="fillFieldIfEmpty('ingredientes', <?= json_encode($plantillaIngredientes) ?>)">
+              <i class="bi bi-magic"></i> Aplicar plantilla
+            </button>
+          </div>
+        </div>
+        <?php endif; ?>
+
         <div class="col-12 campo-aesan critico">
           <label class="form-label">Lista de ingredientes *</label>
           <textarea name="ingredientes" id="ingredientes" class="form-control" rows="4"
             placeholder="Ej: Carne de vaca (99,75%), sal (0,15%), conservante: sulfito sódico (E221)…"><?= h($campos['ingredientes'] ?? '') ?></textarea>
         </div>
+
         <div class="col-12">
           <label class="form-label fw-semibold">
             Alérgenos presentes
@@ -359,41 +466,83 @@ layout_start('Editar — ' . $prod['nombre']);
           <input type="hidden" name="alergenos_lista" id="alergenos_lista"
                  value="<?= h($campos['alergenos_lista'] ?? '') ?>">
         </div>
+
         <div class="col-12" data-tipo="preparado_carne,producto_carnico,carne_picada">
           <label class="form-label">Aditivos utilizados</label>
           <input type="text" name="aditivos" class="form-control"
                  value="<?= h($campos['aditivos'] ?? '') ?>"
                  placeholder="Ej: Conservante E221, Colorante E120…">
+          <!-- Aditivos comunes -->
+          <div class="mt-1 d-flex flex-wrap gap-1">
+            <?php foreach ([
+              'Conservante: nitrito sódico (E250)',
+              'Antioxidante: ascorbato sódico (E301)',
+              'Conservante: sulfito sódico (E221)',
+              'Colorante: cochinilla (E120)',
+              'Potenciador del sabor: glutamato monosódico (E621)',
+              'Conservante: sorbato potásico (E202)',
+            ] as $aditivo): ?>
+            <button type="button" class="btn btn-xs btn-outline-secondary"
+                    style="font-size:.7rem;padding:2px 6px"
+                    onclick="appendToField('aditivos', <?= json_encode($aditivo) ?>)">
+              + <?= h($aditivo) ?>
+            </button>
+            <?php endforeach; ?>
+          </div>
         </div>
       </div>
 
       <?php elseif ($paso===4): // ═══ PASO 4: Conservación ══════════════════ ?>
+      <?php
+        $sugsConserv  = Sugerencias::getConservacion($tipo);
+        $sugsInstruc  = Sugerencias::getInstrucciones($tipo);
+        $estadoProd   = $campos['estado_producto'] ?? 'fresco';
+      ?>
       <h5 class="mb-1"><i class="bi bi-thermometer-half"></i> Conservación e instrucciones</h5>
       <p class="text-muted small mb-3">Información obligatoria antes de la compra para todos los productos cárnicos.</p>
       <div class="row g-3">
+
         <div class="col-md-10 campo-aesan critico">
           <label class="form-label">Condiciones de conservación *</label>
-          <input type="text" name="conservacion" class="form-control"
+          <input type="text" name="conservacion" id="conservacion" class="form-control"
                  value="<?= h($campos['conservacion'] ?? '') ?>"
                  placeholder="Ej: Conservar refrigerado entre 0 y 4 ºC">
-          <div class="form-text">
-            Sugerencias:
-            <a href="#" class="text-primary sugerencia-txt" data-txt="Conservar refrigerado entre 0 y 4 ºC" data-campo="conservacion">Fresco</a> |
-            <a href="#" class="text-primary sugerencia-txt" data-txt="Conservar congelado a -18 ºC o inferior" data-campo="conservacion">Congelado</a> |
-            <a href="#" class="text-primary sugerencia-txt" data-txt="Conservar refrigerado entre 2 y 4 ºC" data-campo="conservacion">Preparado</a>
+          <!-- Sugerencias específicas por tipo -->
+          <div class="mt-1 d-flex flex-wrap gap-1" id="pills-conservacion">
+            <?php foreach ($sugsConserv as $sug): ?>
+            <button type="button" class="btn btn-xs btn-outline-secondary sugerencia-txt"
+                    data-txt="<?= h($sug) ?>" data-campo="conservacion"
+                    style="font-size:.72rem;padding:2px 8px;white-space:normal;text-align:left;max-width:100%">
+              <?= h($sug) ?>
+            </button>
+            <?php endforeach; ?>
+            <?php foreach (Sugerencias::$conservacionCongelado as $sug): ?>
+            <button type="button" class="btn btn-xs btn-outline-info sugerencia-txt"
+                    data-txt="<?= h($sug) ?>" data-campo="conservacion"
+                    style="font-size:.72rem;padding:2px 8px;white-space:normal;text-align:left;max-width:100%">
+              <i class="bi bi-snow2"></i> <?= h($sug) ?>
+            </button>
+            <?php endforeach; ?>
           </div>
         </div>
+
         <div class="col-md-10 campo-aesan critico">
           <label class="form-label">Instrucciones de uso / cocinado *</label>
-          <input type="text" name="instruccion_uso" class="form-control"
+          <input type="text" name="instruccion_uso" id="instruccion_uso" class="form-control"
                  value="<?= h($campos['instruccion_uso'] ?? '') ?>"
                  placeholder="Ej: Cocinar completamente antes de su consumo. Temperatura mínima 70 ºC.">
-          <div class="form-text">
-            Sugerencias:
-            <a href="#" class="text-primary sugerencia-txt" data-txt="Cocinar completamente antes de su consumo. Temperatura interna mínima 70 ºC." data-campo="instruccion_uso">Hamburguesa cruda</a> |
-            <a href="#" class="text-primary sugerencia-txt" data-txt="Listo para consumir. No requiere cocinado." data-campo="instruccion_uso">Listo para consumir</a>
+          <!-- Instrucciones específicas por tipo -->
+          <div class="mt-1 d-flex flex-wrap gap-1">
+            <?php foreach ($sugsInstruc as $sug): ?>
+            <button type="button" class="btn btn-xs btn-outline-secondary sugerencia-txt"
+                    data-txt="<?= h($sug) ?>" data-campo="instruccion_uso"
+                    style="font-size:.72rem;padding:2px 8px;white-space:normal;text-align:left;max-width:100%">
+              <?= h($sug) ?>
+            </button>
+            <?php endforeach; ?>
           </div>
         </div>
+
         <div class="col-12">
           <label class="form-label fw-semibold">Estado del producto</label>
           <div class="d-flex gap-3 flex-wrap mb-2">
@@ -401,26 +550,26 @@ layout_start('Editar — ' . $prod['nombre']);
             <div class="form-check">
               <input class="form-check-input" type="radio" name="estado_producto"
                      value="<?= $k ?>" id="sp-<?= $k ?>"
-                     <?= ($campos['estado_producto']??'fresco')===$k?'checked':'' ?>>
+                     <?= ($estadoProd)===$k?'checked':'' ?>>
               <label class="form-check-label" for="sp-<?= $k ?>"><?= $v ?></label>
             </div>
             <?php endforeach; ?>
           </div>
-          <!-- Fecha de congelación (obligatoria para productos congelados — Reglamento (UE) 1169/2011 Anexo X pt.3) -->
-          <div id="wrap-fecha-cong" <?= ($campos['estado_producto']??'fresco')==='congelado'?'':'style="display:none"' ?>>
+
+          <div id="wrap-fecha-cong" <?= $estadoProd==='congelado'?'':'style="display:none"' ?>>
             <label class="form-label fw-semibold">Fecha de congelación *
               <i class="bi bi-info-circle small" data-bs-toggle="tooltip"
-                 title="Obligatoria para productos vendidos como congelados (Anexo X, punto 3, Reglamento UE 1169/2011)"></i>
+                 title="Obligatoria (Anexo X, punto 3, Reglamento UE 1169/2011)"></i>
             </label>
             <input type="date" name="fecha_congelacion" class="form-control" style="max-width:220px"
                    value="<?= h($campos['fecha_congelacion'] ?? '') ?>">
-            <div class="form-text text-warning"><i class="bi bi-exclamation-triangle"></i> Obligatoria y se mostrará en la ficha del producto.</div>
+            <div class="form-text text-warning"><i class="bi bi-exclamation-triangle"></i> Obligatoria y se mostrará en la ficha.</div>
           </div>
-          <!-- Indicador "descongelado" -->
-          <div id="wrap-descongelado-alert" <?= ($campos['estado_producto']??'fresco')==='descongelado'?'':'style="display:none"' ?>>
+
+          <div id="wrap-descongelado-alert" <?= $estadoProd==='descongelado'?'':'style="display:none"' ?>>
             <div class="alert alert-warning py-2 small mt-2">
               <i class="bi bi-exclamation-triangle-fill"></i>
-              <strong>DESCONGELADO</strong> — Se añadirá automáticamente en la ficha del producto:
+              <strong>DESCONGELADO</strong> — Se añadirá automáticamente:
               <em>"DESCONGELADO. Una vez descongelado no volver a congelar."</em>
             </div>
           </div>
@@ -436,6 +585,14 @@ layout_start('Editar — ' . $prod['nombre']);
       </script>
 
       <?php elseif ($paso===5): // ═══ PASO 5: Nutricional ═══════════════════ ?>
+      <?php
+        $nutRef  = Sugerencias::getNutricionalRef($tipo, $campos['especie'] ?? '_');
+        $nutEtiq = [
+          'energia_kj'=>'kJ','energia_kcal'=>'kcal','grasas'=>'Grasas totales (g)',
+          'grasas_saturadas'=>'Saturadas (g)','hidratos'=>'H. carbono (g)',
+          'azucares'=>'Azúcares (g)','proteinas'=>'Proteínas (g)','sal'=>'Sal (g)',
+        ];
+      ?>
       <h5 class="mb-1"><i class="bi bi-bar-chart"></i> Información nutricional</h5>
       <p class="text-muted small mb-3">Obligatoria para preparados y productos cárnicos. Las kcal se calculan automáticamente.</p>
       <?php if ($tipo==='carne_fresca'): ?>
@@ -443,6 +600,42 @@ layout_start('Editar — ' . $prod['nombre']);
         La carne fresca sin aditivos está <strong>exenta</strong> de tabla nutricional. Puedes rellenarla de forma voluntaria.
       </div>
       <?php endif; ?>
+
+      <?php if ($nutRef): ?>
+      <div class="alert alert-success py-2 mb-3">
+        <div class="d-flex align-items-center justify-content-between gap-2">
+          <div>
+            <i class="bi bi-stars"></i>
+            <strong>Valores orientativos de referencia</strong>
+            <span class="text-muted small ms-1">por 100 g · Fuente: BEDCA/USDA — verifica antes de publicar</span>
+          </div>
+          <button type="button" class="btn btn-sm btn-success flex-shrink-0" id="btn-aplicar-nutri">
+            <i class="bi bi-magic"></i> Usar como base
+          </button>
+        </div>
+        <div class="row g-1 mt-2">
+          <?php foreach ($nutRef as $campo => $val): ?>
+          <div class="col-auto">
+            <span class="badge bg-light text-dark border" style="font-size:.75rem">
+              <?= $nutEtiq[$campo] ?? $campo ?>: <strong><?= $val ?></strong>
+            </span>
+          </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+      <script>
+      document.getElementById('btn-aplicar-nutri')?.addEventListener('click', () => {
+        const ref = <?= json_encode($nutRef) ?>;
+        Object.entries(ref).forEach(([k, v]) => {
+          const el = document.querySelector(`[name="${k}"]`);
+          if (el && !el.value) el.value = v;
+        });
+        // Trigger recalculo kcal
+        document.getElementById('grasas')?.dispatchEvent(new Event('input'));
+      });
+      </script>
+      <?php endif; ?>
+
       <div class="row g-3">
         <div class="col-md-8">
           <label class="form-label fw-semibold">Valor energético</label>
@@ -493,12 +686,16 @@ layout_start('Editar — ' . $prod['nombre']);
         </a>
         <?php endif; ?>
         <div class="d-flex gap-2">
+          <?php if (!$bloqueado): ?>
           <button type="submit" name="solo_guardar" value="1" class="btn btn-outline-primary">
             <i class="bi bi-floppy"></i> Guardar
           </button>
           <button type="submit" class="btn btn-primary">
             <?= $paso<5 ? '<i class="bi bi-arrow-right"></i> Siguiente' : '<i class="bi bi-check2-circle"></i> Finalizar' ?>
           </button>
+          <?php else: ?>
+          <span class="text-muted small align-self-center"><i class="bi bi-lock"></i> Solo lectura</span>
+          <?php endif; ?>
         </div>
       </div>
       </div><!-- /wizard-card -->
@@ -516,7 +713,6 @@ layout_start('Editar — ' . $prod['nombre']);
       <div class="card-body p-2">
         <?php foreach (Validator::getCamposRequeridos($tipo) as $key => $info): ?>
         <?php
-        // Comprobaciones especiales para campos derivados
         if ($key === 'origen_pais') {
             $cubierto = !empty($campos['origen_pais'])
                 || !empty($campos['origen_nacido'])
@@ -580,12 +776,77 @@ layout_start('Editar — ' . $prod['nombre']);
 </div>
 
 <script>
-// Sync tipo select → hidden
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fillField(name, value) {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (el) { el.value = value; el.dispatchEvent(new Event('input')); }
+}
+function fillFieldIfEmpty(name, value) {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (el && !el.value.trim()) { el.value = value; el.dispatchEvent(new Event('input')); }
+}
+function appendToField(name, value) {
+  const el = document.querySelector(`[name="${name}"]`);
+  if (!el) return;
+  el.value = el.value ? el.value.trim() + ', ' + value : value;
+  el.dispatchEvent(new Event('input'));
+}
+
+// ── Sync tipo select → hidden ─────────────────────────────────────────────────
 document.getElementById('tipo_validado')?.addEventListener('change', function() {
   document.getElementById('tipo_validado_hidden').value = this.value;
+  updateDenomSugerencias();
+  updateLimitesPills();
+});
+document.getElementById('especie')?.addEventListener('change', function() {
+  updateDenomSugerencias();
+  updateLimitesPills();
 });
 
-// Sugerencias rápidas de texto
+// ── Denominaciones dinámicas (paso 1) ─────────────────────────────────────────
+function updateDenomSugerencias() {
+  const tipo    = document.getElementById('tipo_validado')?.value || 'otro';
+  const especie = document.getElementById('especie')?.value || '_';
+  const S       = window.SUGERENCIAS;
+  if (!S) return;
+  const m     = S.denominaciones[tipo] || S.denominaciones['otro'] || {};
+  const lista = m[especie] || m['_'] || [];
+  const box   = document.getElementById('denom-pills');
+  if (!box) return;
+  box.innerHTML = lista.map(s =>
+    `<button type="button" class="btn btn-sm btn-outline-primary"
+       style="font-size:.75rem"
+       onclick="fillField('denominacion',${JSON.stringify(s)})">${s}</button>`
+  ).join('');
+}
+
+// ── Límites grasa/colágeno pills (paso 1) ─────────────────────────────────────
+function updateLimitesPills() {
+  const especie = document.getElementById('especie')?.value || '_';
+  const S = window.SUGERENCIAS;
+  if (!S) return;
+  const lims = S.limites[especie] || S.limites['_'] || {};
+
+  const pgr = document.getElementById('pills-grasa');
+  if (pgr) pgr.innerHTML = (lims.grasa || []).map(v =>
+    `<button type="button" class="btn btn-xs btn-outline-warning"
+       style="font-size:.7rem;padding:1px 6px"
+       onclick="fillField('limite_grasa','${v}')">≤${v}%</button>`
+  ).join('');
+
+  const pcol = document.getElementById('pills-colageno');
+  if (pcol) pcol.innerHTML = (lims.colageno || []).map(v =>
+    `<button type="button" class="btn btn-xs btn-outline-warning"
+       style="font-size:.7rem;padding:1px 6px"
+       onclick="fillField('limite_colageno','${v}')">≤${v}%</button>`
+  ).join('');
+}
+
+// Inicializar en paso 1
+updateDenomSugerencias();
+updateLimitesPills();
+
+// ── Sugerencias rápidas de texto ──────────────────────────────────────────────
 document.querySelectorAll('.sugerencia-txt').forEach(a => {
   a.addEventListener('click', e => {
     e.preventDefault();
@@ -594,17 +855,15 @@ document.querySelectorAll('.sugerencia-txt').forEach(a => {
   });
 });
 
-// Paso 2: helper "mismo país para todo" → rellena todos los campos de origen visibles
-const btnMismoPais = document.getElementById('btn-mismo-pais');
+// ── Paso 2: helper "mismo país para todo" ─────────────────────────────────────
+const btnMismoPais   = document.getElementById('btn-mismo-pais');
 const inputMismoPais = document.getElementById('mismo-pais');
 if (btnMismoPais && inputMismoPais) {
   btnMismoPais.addEventListener('click', () => {
     const pais = inputMismoPais.value.trim();
     if (!pais) return;
     document.querySelectorAll('.origen-field').forEach(f => {
-      const wrap = f.closest('[class*="origen-"]') || f.closest('div');
-      // Solo rellenar si el contenedor padre es visible
-      const col = f.closest('.col-md-4, .col-md-6');
+      const col = f.closest('[class*="col-"]');
       if (col && col.style.display === 'none') return;
       f.value = pais;
     });
@@ -613,6 +872,33 @@ if (btnMismoPais && inputMismoPais) {
     if (e.key === 'Enter') { e.preventDefault(); btnMismoPais.click(); }
   });
 }
+
+// ── Bloqueo: heartbeat cada 30 s ─────────────────────────────────────────────
+<?php if (!$bloqueado): ?>
+const _lockInterval = setInterval(() => {
+  const fd = new FormData();
+  fd.append('action', 'heartbeat');
+  fd.append('producto_id', window.PROD_ID);
+  fetch(`${window.BASE_URL}/lock.php`, { method:'POST', body:fd }).catch(()=>{});
+}, 30000);
+
+// Liberar al salir de la página
+window.addEventListener('beforeunload', () => {
+  const fd = new FormData();
+  fd.append('action', 'release');
+  fd.append('producto_id', window.PROD_ID);
+  navigator.sendBeacon(`${window.BASE_URL}/lock.php`, fd);
+});
+<?php endif; ?>
+
+// ── Admin: forzar edición ─────────────────────────────────────────────────────
+document.getElementById('btn-forzar-edicion')?.addEventListener('click', () => {
+  const fd = new FormData();
+  fd.append('action', 'release');
+  fd.append('producto_id', window.PROD_ID);
+  fetch(`${window.BASE_URL}/lock.php`, { method:'POST', body:fd })
+    .then(() => location.reload());
+});
 </script>
 
 <?php layout_end(); ?>

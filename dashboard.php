@@ -8,8 +8,17 @@ layout_start('Dashboard');
 
 $uid     = Auth::uid();
 $isAdmin = Auth::isAdmin();
-$wh      = $isAdmin ? '' : 'AND i.usuario_id = ?';
-$p       = $isAdmin ? [] : [$uid];
+
+// Incluye importaciones propias y compartidas (colaborador)
+if ($isAdmin) {
+    $wh = '';
+    $p  = [];
+} else {
+    $wh = 'AND (i.usuario_id = ? OR EXISTS(
+                SELECT 1 FROM importacion_colaboradores ic
+                WHERE ic.importacion_id = i.id AND ic.usuario_id = ?))';
+    $p  = [$uid, $uid];
+}
 
 $stats = DB::row("
     SELECT
@@ -29,7 +38,7 @@ $importaciones = DB::rows(
      WHERE 1=1 $wh ORDER BY i.fecha DESC LIMIT 10", $p
 );
 
-// Productos más recientes con incumplimientos
+// Productos más recientes con incumplimientos (propios y compartidos)
 $pendientes = DB::rows(
     "SELECT p.id, p.nombre, p.referencia, p.tipo_validado, p.estado,
             p.importacion_id, i.nombre_archivo
