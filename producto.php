@@ -269,20 +269,37 @@ layout_start('Editar — ' . $prod['nombre']);
       <?php elseif ($paso===2): // ═══ PASO 2: Origen ════════════════════════ ?>
       <?php $especie = $campos['especie'] ?? ''; ?>
       <h5 class="mb-1"><i class="bi bi-geo-alt"></i> Origen del producto</h5>
-      <p class="text-muted small mb-3">Las menciones de origen deben figurar de forma expresa en la ficha. No es suficiente que se deduzcan del nombre o la raza.</p>
+      <p class="text-muted small mb-3">
+        Las menciones de origen deben figurar <strong>de forma expresa</strong> en la ficha.
+        No es suficiente deducirlas del nombre o la raza.
+      </p>
       <input type="hidden" name="especie" value="<?= h($especie) ?>">
+
+      <!-- Atajo: mismo país para todo -->
+      <div class="col-12 mb-3" id="wrap-mismo-pais">
+        <div class="input-group input-group-sm" style="max-width:340px">
+          <span class="input-group-text bg-light"><i class="bi bi-lightning-fill text-warning"></i></span>
+          <input type="text" id="mismo-pais" class="form-control"
+                 placeholder="Rellenar todos con el mismo país…">
+          <button type="button" class="btn btn-outline-secondary" id="btn-mismo-pais">Aplicar a todos</button>
+        </div>
+        <div class="form-text">Útil cuando nacido, criado y sacrificado es en el mismo país.</div>
+      </div>
+
       <div class="row g-3">
 
         <?php if ($especie==='vacuno' || !$especie): ?>
         <div class="col-12 <?= $especie!=='vacuno'?'origen-vacuno':'' ?>">
           <div class="alert alert-info py-2 small">
-            <strong>Carne de vacuno:</strong> se requieren Nacido en / Criado en / Sacrificado en (o «Origen: X» si los tres coinciden).
+            <strong>Carne de vacuno</strong> — Reglamento (CE) 1760/2000:<br>
+            Se requieren <em>Nacido en / Criado en / Sacrificado en</em>.
+            Si los tres coinciden el sistema generará: <code>Origen: España (nacido, criado y sacrificado en España)</code>.
           </div>
         </div>
         <?php foreach (['origen_nacido'=>'Nacido en','origen_criado'=>'Criado en','origen_sacrificado'=>'Sacrificado en'] as $k=>$lbl): ?>
         <div class="col-md-4 campo-aesan critico origen-vacuno">
           <label class="form-label"><?= $lbl ?> *</label>
-          <input type="text" name="<?= $k ?>" class="form-control"
+          <input type="text" name="<?= $k ?>" id="<?= $k ?>" class="form-control origen-field"
                  value="<?= h($campos[$k] ?? '') ?>" placeholder="España">
         </div>
         <?php endforeach; ?>
@@ -291,17 +308,19 @@ layout_start('Editar — ' . $prod['nombre']);
         <?php if (in_array($especie,['porcino','aves','ovino']) || !$especie): ?>
         <div class="col-12 origen-otros">
           <div class="alert alert-info py-2 small">
-            <strong>Porcino / Aves / Ovino:</strong> se requiere el país de cría y el país de sacrificio.
+            <strong>Porcino / Aves / Ovino</strong> — Reglamento (UE) 1337/2013:<br>
+            Se requieren <em>País de cría</em> y <em>País de sacrificio</em>.
+            Si coinciden se generará: <code>Origen: España (criado y sacrificado en España)</code>.
           </div>
         </div>
         <div class="col-md-6 campo-aesan critico origen-otros">
           <label class="form-label">País de cría *</label>
-          <input type="text" name="origen_cria" class="form-control"
+          <input type="text" name="origen_cria" id="origen_cria" class="form-control origen-field"
                  value="<?= h($campos['origen_cria'] ?? '') ?>" placeholder="España">
         </div>
         <div class="col-md-6 campo-aesan critico origen-otros">
           <label class="form-label">País de sacrificio *</label>
-          <input type="text" name="origen_sacrificado" class="form-control"
+          <input type="text" name="origen_sacrificado" id="origen_sacrificado" class="form-control origen-field"
                  value="<?= h($campos['origen_sacrificado'] ?? '') ?>" placeholder="España">
         </div>
         <?php endif; ?>
@@ -309,7 +328,7 @@ layout_start('Editar — ' . $prod['nombre']);
         <div class="col-md-6 campo-aesan critico origen-generico"
              <?= in_array($especie,['vacuno','porcino','aves','ovino'])?'style="display:none"':'' ?>>
           <label class="form-label">País de origen *</label>
-          <input type="text" name="origen_pais" class="form-control"
+          <input type="text" name="origen_pais" id="origen_pais" class="form-control origen-field"
                  value="<?= h($campos['origen_pais'] ?? '') ?>" placeholder="España">
         </div>
       </div>
@@ -377,7 +396,7 @@ layout_start('Editar — ' . $prod['nombre']);
         </div>
         <div class="col-12">
           <label class="form-label fw-semibold">Estado del producto</label>
-          <div class="d-flex gap-3 flex-wrap">
+          <div class="d-flex gap-3 flex-wrap mb-2">
             <?php foreach (['fresco'=>'Fresco / Refrigerado','congelado'=>'Congelado','descongelado'=>'Descongelado (indicar en ficha)'] as $k=>$v): ?>
             <div class="form-check">
               <input class="form-check-input" type="radio" name="estado_producto"
@@ -387,8 +406,34 @@ layout_start('Editar — ' . $prod['nombre']);
             </div>
             <?php endforeach; ?>
           </div>
+          <!-- Fecha de congelación (obligatoria para productos congelados — Reglamento (UE) 1169/2011 Anexo X pt.3) -->
+          <div id="wrap-fecha-cong" <?= ($campos['estado_producto']??'fresco')==='congelado'?'':'style="display:none"' ?>>
+            <label class="form-label fw-semibold">Fecha de congelación *
+              <i class="bi bi-info-circle small" data-bs-toggle="tooltip"
+                 title="Obligatoria para productos vendidos como congelados (Anexo X, punto 3, Reglamento UE 1169/2011)"></i>
+            </label>
+            <input type="date" name="fecha_congelacion" class="form-control" style="max-width:220px"
+                   value="<?= h($campos['fecha_congelacion'] ?? '') ?>">
+            <div class="form-text text-warning"><i class="bi bi-exclamation-triangle"></i> Obligatoria y se mostrará en la ficha del producto.</div>
+          </div>
+          <!-- Indicador "descongelado" -->
+          <div id="wrap-descongelado-alert" <?= ($campos['estado_producto']??'fresco')==='descongelado'?'':'style="display:none"' ?>>
+            <div class="alert alert-warning py-2 small mt-2">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+              <strong>DESCONGELADO</strong> — Se añadirá automáticamente en la ficha del producto:
+              <em>"DESCONGELADO. Una vez descongelado no volver a congelar."</em>
+            </div>
+          </div>
         </div>
       </div>
+      <script>
+      document.querySelectorAll('[name="estado_producto"]').forEach(r => {
+        r.addEventListener('change', () => {
+          document.getElementById('wrap-fecha-cong').style.display       = r.value==='congelado'    ? '' : 'none';
+          document.getElementById('wrap-descongelado-alert').style.display = r.value==='descongelado' ? '' : 'none';
+        });
+      });
+      </script>
 
       <?php elseif ($paso===5): // ═══ PASO 5: Nutricional ═══════════════════ ?>
       <h5 class="mb-1"><i class="bi bi-bar-chart"></i> Información nutricional</h5>
@@ -548,6 +593,26 @@ document.querySelectorAll('.sugerencia-txt').forEach(a => {
     if (campo) campo.value = a.dataset.txt;
   });
 });
+
+// Paso 2: helper "mismo país para todo" → rellena todos los campos de origen visibles
+const btnMismoPais = document.getElementById('btn-mismo-pais');
+const inputMismoPais = document.getElementById('mismo-pais');
+if (btnMismoPais && inputMismoPais) {
+  btnMismoPais.addEventListener('click', () => {
+    const pais = inputMismoPais.value.trim();
+    if (!pais) return;
+    document.querySelectorAll('.origen-field').forEach(f => {
+      const wrap = f.closest('[class*="origen-"]') || f.closest('div');
+      // Solo rellenar si el contenedor padre es visible
+      const col = f.closest('.col-md-4, .col-md-6');
+      if (col && col.style.display === 'none') return;
+      f.value = pais;
+    });
+  });
+  inputMismoPais.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); btnMismoPais.click(); }
+  });
+}
 </script>
 
 <?php layout_end(); ?>

@@ -11,6 +11,22 @@ require_once __DIR__ . '/includes/functions.php';
 
 Auth::check();
 
+// ── Eliminar producto individual ──────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_product') {
+    $delProdId = (int)($_POST['prod_id'] ?? 0);
+    $delImpId  = (int)($_POST['imp_id']  ?? 0);
+    if ($delProdId && $delImpId) {
+        DB::q('DELETE FROM productos WHERE id=? AND importacion_id=?', [$delProdId, $delImpId]);
+        // Actualizar contadores de la importación
+        $cOk  = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado="ok"',   [$delImpId])['c'];
+        $cInc = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado!="ok"',  [$delImpId])['c'];
+        $tot  = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=?', [$delImpId])['c'];
+        DB::update('importaciones', ['total'=>$tot,'ok'=>$cOk,'incompletos'=>$cInc], 'id=?', [$delImpId]);
+        flash('Producto eliminado.', 'success');
+    }
+    redirect("productos.php?imp={$delImpId}");
+}
+
 $impId = (int)($_GET['imp'] ?? 0);
 if (!$impId) redirect('dashboard.php');
 
@@ -232,6 +248,11 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
                   <i class="bi bi-eye"></i>
                 </button>
                 <?php endif; ?>
+                <button type="button" class="btn btn-outline-danger btn-delete-prod"
+                        data-id="<?= $p['id'] ?>" data-nombre="<?= h($p['nombre']) ?>"
+                        title="Eliminar producto">
+                  <i class="bi bi-trash3"></i>
+                </button>
               </div>
             </td>
           </tr>
@@ -294,8 +315,26 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
   </div>
 </div>
 
+<!-- Formulario oculto para borrar producto -->
+<form id="form-delete-prod" method="post" style="display:none">
+  <input type="hidden" name="action"  value="delete_product">
+  <input type="hidden" name="imp_id"  value="<?= $impId ?>">
+  <input type="hidden" name="prod_id" id="del-prod-id" value="">
+</form>
+
 <script>
 const BASE_URL = '<?= BASE_URL ?>';
+
+// Borrar producto
+document.querySelectorAll('.btn-delete-prod').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const nombre = btn.dataset.nombre;
+    if (!confirm(`¿Eliminar el producto "${nombre}"?\nEsta acción no se puede deshacer.`)) return;
+    document.getElementById('del-prod-id').value = btn.dataset.id;
+    document.getElementById('form-delete-prod').submit();
+  });
+});
+
 document.querySelectorAll('.btn-preview-desc').forEach(btn => {
   btn.addEventListener('click', () => {
     const id  = btn.dataset.id;

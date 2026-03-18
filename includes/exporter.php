@@ -40,6 +40,18 @@ class Exporter {
             }
         }
 
+        // Descongelado / fecha de congelación (Reglamento (UE) 1169/2011 Anexo VI y Anexo X pt.3)
+        $estadoCongHtml = '';
+        $estadoCong = $c['estado_producto'] ?? '';
+        if ($estadoCong === 'descongelado') {
+            $estadoCongHtml = '<p class="aesan-descongelado" style="font-weight:700;color:#C0392B">⚠ DESCONGELADO. Una vez descongelado no volver a congelar.</p>';
+        } elseif ($estadoCong === 'congelado') {
+            $fechaCong = $c['fecha_congelacion'] ?? '';
+            $estadoCongHtml = '<p class="aesan-congelado"><strong>Producto congelado.</strong>'
+                . ($fechaCong ? ' Fecha de congelación: <strong>' . htmlspecialchars($fechaCong) . '</strong>' : '')
+                . '</p>';
+        }
+
         // Conservación
         $conservHtml = '';
         if (!empty($c['conservacion'])) {
@@ -71,6 +83,7 @@ class Exporter {
         $html  = "\n<!-- AESAN_BLOCK_START -->\n";
         $html .= "<div class=\"info-alimentaria\">\n";
         $html .= "  <h3>Información alimentaria</h3>\n";
+        if ($estadoCongHtml)  $html .= "  {$estadoCongHtml}\n";
         if ($denomHtml)       $html .= "  {$denomHtml}\n";
         if ($ingredientesHtml) {
             $html .= "  <p class=\"aesan-ingredientes\"><strong>Ingredientes:</strong> "
@@ -88,38 +101,42 @@ class Exporter {
         return $html;
     }
 
-    // ── Bloque de origen según especie ───────────────────────────────────────
+    // ── Bloque de origen según especie (Reglamentos CE 1760/2000, UE 1337/2013) ─
     private static function bloqueOrigen(array $c): string {
         $especie = $c['especie'] ?? '';
         $html    = '';
 
         if ($especie === 'vacuno') {
-            // Si los tres son iguales → "Origen: España"
-            $nacido    = $c['origen_nacido']    ?? '';
-            $criado    = $c['origen_criado']    ?? '';
-            $sacrificado = $c['origen_sacrificado'] ?? '';
+            // Reglamento (CE) 1760/2000 y 1825/2000: Nacido/Criado/Sacrificado en
+            $nacido      = trim($c['origen_nacido']      ?? '');
+            $criado      = trim($c['origen_criado']      ?? '');
+            $sacrificado = trim($c['origen_sacrificado'] ?? '');
             if ($nacido && $nacido === $criado && $criado === $sacrificado) {
+                // Todos coinciden → mención única con desglose explícito
                 $html = '<p class="aesan-origen"><strong>Origen:</strong> '
-                    . htmlspecialchars($nacido) . '</p>';
+                    . htmlspecialchars($nacido)
+                    . ' <span style="font-size:.9em;color:#555">(nacido, criado y sacrificado en '
+                    . htmlspecialchars($nacido) . ')</span></p>';
             } else {
                 $filas = '';
-                if ($nacido)     $filas .= '<li>Nacido en: <strong>' . htmlspecialchars($nacido) . '</strong></li>';
-                if ($criado)     $filas .= '<li>Criado en: <strong>' . htmlspecialchars($criado) . '</strong></li>';
+                if ($nacido)      $filas .= '<li>Nacido en: <strong>'      . htmlspecialchars($nacido)      . '</strong></li>';
+                if ($criado)      $filas .= '<li>Criado en: <strong>'      . htmlspecialchars($criado)      . '</strong></li>';
                 if ($sacrificado) $filas .= '<li>Sacrificado en: <strong>' . htmlspecialchars($sacrificado) . '</strong></li>';
-                if ($filas) {
-                    $html = '<div class="aesan-origen"><strong>Origen:</strong><ul>' . $filas . '</ul></div>';
-                }
+                if ($filas) $html = '<div class="aesan-origen"><strong>Origen:</strong><ul>' . $filas . '</ul></div>';
             }
         } elseif (in_array($especie, ['porcino','aves','ovino'])) {
-            $cria     = $c['origen_cria']     ?? '';
-            $sacri    = $c['origen_sacrificado'] ?? '';
+            // Reglamento (UE) 1337/2013: país de cría y país de sacrificio
+            $cria  = trim($c['origen_cria']        ?? '');
+            $sacri = trim($c['origen_sacrificado'] ?? '');
             if ($cria && $cria === $sacri) {
                 $html = '<p class="aesan-origen"><strong>Origen:</strong> '
-                    . htmlspecialchars($cria) . '</p>';
+                    . htmlspecialchars($cria)
+                    . ' <span style="font-size:.9em;color:#555">(criado y sacrificado en '
+                    . htmlspecialchars($cria) . ')</span></p>';
             } else {
                 $filas = '';
-                if ($cria)  $filas .= '<li>País de cría: <strong>' . htmlspecialchars($cria) . '</strong></li>';
-                if ($sacri) $filas .= '<li>País de sacrificio: <strong>' . htmlspecialchars($sacri) . '</strong></li>';
+                if ($cria)  $filas .= '<li>País de cría: <strong>'        . htmlspecialchars($cria)  . '</strong></li>';
+                if ($sacri) $filas .= '<li>País de sacrificio: <strong>'  . htmlspecialchars($sacri) . '</strong></li>';
                 if ($filas) $html = '<div class="aesan-origen"><strong>Origen:</strong><ul>' . $filas . '</ul></div>';
             }
         } elseif (!empty($c['origen_pais'])) {
