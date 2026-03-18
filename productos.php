@@ -2,11 +2,14 @@
 // productos.php – tabla de resultados con paginación y preview
 
 require_once __DIR__ . '/includes/config_base.php';
+require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/validator.php';
 require_once __DIR__ . '/includes/exporter.php';
 require_once __DIR__ . '/includes/functions.php';
+
+Auth::check();
 
 $impId = (int)($_GET['imp'] ?? 0);
 if (!$impId) redirect('dashboard.php');

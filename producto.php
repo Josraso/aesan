@@ -2,6 +2,7 @@
 // producto.php – Editor wizard con historial de cambios y notificaciones
 
 require_once __DIR__ . '/includes/config_base.php';
+require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/layout.php';
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/validator.php';
