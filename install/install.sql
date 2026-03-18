@@ -64,4 +64,21 @@ CREATE TABLE IF NOT EXISTS `historial_productos` (
   CONSTRAINT `fk_hist_usr`  FOREIGN KEY (`usuario_id`)  REFERENCES `usuarios`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `producto_bloqueos` (
+  `producto_id`    INT UNSIGNED NOT NULL,
+  `usuario_id`     INT UNSIGNED NOT NULL,
+  `usuario_nombre` VARCHAR(100) NOT NULL,
+  `updated_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`producto_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `importacion_colaboradores` (
+  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `importacion_id` INT UNSIGNED NOT NULL,
+  `usuario_id`     INT UNSIGNED NOT NULL,
+  `creado_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_imp_usr` (`importacion_id`, `usuario_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 SET foreign_key_checks = 1;

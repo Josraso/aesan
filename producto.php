@@ -436,8 +436,8 @@ window.BASE_URL    = '<?= BASE_URL ?>';
               <strong>Plantilla legal para <?= Validator::labelTipo($tipo) ?></strong>
               <div class="small text-muted mt-1 font-monospace"><?= h($plantillaIngredientes) ?></div>
             </div>
-            <button type="button" class="btn btn-sm btn-primary flex-shrink-0"
-                    onclick="fillFieldIfEmpty('ingredientes', <?= json_encode($plantillaIngredientes) ?>)">
+            <button type="button" class="btn btn-sm btn-primary flex-shrink-0 fill-empty-pill"
+                    data-campo="ingredientes" data-val="<?= h($plantillaIngredientes) ?>">
               <i class="bi bi-magic"></i> Aplicar plantilla
             </button>
           </div>
@@ -482,9 +482,9 @@ window.BASE_URL    = '<?= BASE_URL ?>';
               'Potenciador del sabor: glutamato monosódico (E621)',
               'Conservante: sorbato potásico (E202)',
             ] as $aditivo): ?>
-            <button type="button" class="btn btn-xs btn-outline-secondary"
+            <button type="button" class="btn btn-xs btn-outline-secondary append-pill"
                     style="font-size:.7rem;padding:2px 6px"
-                    onclick="appendToField('aditivos', <?= json_encode($aditivo) ?>)">
+                    data-campo="aditivos" data-val="<?= h($aditivo) ?>">
               + <?= h($aditivo) ?>
             </button>
             <?php endforeach; ?>
@@ -813,11 +813,11 @@ function updateDenomSugerencias() {
   const lista = m[especie] || m['_'] || [];
   const box   = document.getElementById('denom-pills');
   if (!box) return;
-  box.innerHTML = lista.map(s =>
-    `<button type="button" class="btn btn-sm btn-outline-primary"
-       style="font-size:.75rem"
-       onclick="fillField('denominacion',${JSON.stringify(s)})">${s}</button>`
-  ).join('');
+  box.innerHTML = lista.map(s => {
+    const v = s.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    return `<button type="button" class="btn btn-sm btn-outline-primary fill-pill"
+      style="font-size:.75rem" data-campo="denominacion" data-val="${v}">${v}</button>`;
+  }).join('');
 }
 
 // ── Límites grasa/colágeno pills (paso 1) ─────────────────────────────────────
@@ -846,7 +846,18 @@ function updateLimitesPills() {
 updateDenomSugerencias();
 updateLimitesPills();
 
-// ── Sugerencias rápidas de texto ──────────────────────────────────────────────
+// ── Handler universal de pills (fill-pill / fill-empty-pill / append-pill) ────
+// Evita el problema de json_encode/JSON.stringify en atributos onclick HTML
+document.addEventListener('click', e => {
+  const f = e.target.closest('.fill-pill');
+  if (f) { fillField(f.dataset.campo, f.dataset.val); return; }
+  const ef = e.target.closest('.fill-empty-pill');
+  if (ef) { fillFieldIfEmpty(ef.dataset.campo, ef.dataset.val); return; }
+  const ap = e.target.closest('.append-pill');
+  if (ap) { appendToField(ap.dataset.campo, ap.dataset.val); return; }
+});
+
+// ── Sugerencias rápidas de texto (conservación/instrucción) ───────────────────
 document.querySelectorAll('.sugerencia-txt').forEach(a => {
   a.addEventListener('click', e => {
     e.preventDefault();
