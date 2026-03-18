@@ -79,6 +79,14 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
     <a href="<?= BASE_URL ?>/import.php" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-upload"></i> Nueva importación
     </a>
+    <form method="post" action="<?= BASE_URL ?>/import.php" class="d-inline"
+          onsubmit="return confirm('¿Eliminar esta importación y TODOS sus productos? No se puede deshacer.')">
+      <input type="hidden" name="action" value="delete_import">
+      <input type="hidden" name="imp_id" value="<?= $impId ?>">
+      <button type="submit" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash3"></i> Eliminar importación
+      </button>
+    </form>
   </div>
 </div>
 

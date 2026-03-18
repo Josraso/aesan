@@ -10,10 +10,29 @@ require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/SimpleXLSX.php';
 require_once __DIR__ . '/includes/SimpleXLS.php';
 
+Auth::check();
+
 // ── Descarga plantilla CSV de ejemplo ────────────────────────────────────────
 if (isset($_GET['plantilla'])) {
     generarPlantilla();
     exit;
+}
+
+// ── Eliminar importación ──────────────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_import') {
+    $delId = (int)($_POST['imp_id'] ?? 0);
+    if ($delId) {
+        $wh = Auth::isAdmin() ? 'id=?' : 'id=? AND usuario_id=?';
+        $wp = Auth::isAdmin() ? [$delId] : [$delId, Auth::uid()];
+        $imp = DB::row("SELECT id FROM importaciones WHERE $wh", $wp);
+        if ($imp) {
+            DB::q('DELETE FROM importaciones WHERE id=?', [$delId]);
+            flash('Importación y sus productos eliminados correctamente.', 'success');
+        } else {
+            flash('No tienes permiso para eliminar esta importación.', 'error');
+        }
+    }
+    redirect('import.php');
 }
 
 // ── Procesar subida ──────────────────────────────────────────────────────────
@@ -220,18 +239,28 @@ $recientes = DB::rows(
       <div class="card-header bg-white fw-semibold"><i class="bi bi-clock-history"></i> Últimas importaciones</div>
       <div class="list-group list-group-flush">
         <?php foreach ($recientes as $r): ?>
-        <a href="<?= BASE_URL ?>/productos.php?imp=<?= $r['id'] ?>"
-           class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
-          <div>
+        <div class="list-group-item d-flex justify-content-between align-items-center">
+          <a href="<?= BASE_URL ?>/productos.php?imp=<?= $r['id'] ?>"
+             class="text-decoration-none flex-grow-1 d-flex align-items-center gap-2">
             <i class="bi bi-file-earmark-excel text-success"></i>
-            <strong class="ms-1"><?= h($r['nombre_archivo']) ?></strong>
-            <span class="text-muted small ms-2"><?= date('d/m/Y H:i', strtotime($r['fecha'])) ?></span>
-          </div>
-          <div>
-            <span class="badge bg-success me-1"><?= $r['ok'] ?> ✔</span>
+            <div>
+              <strong><?= h($r['nombre_archivo']) ?></strong>
+              <span class="text-muted small ms-2"><?= date('d/m/Y H:i', strtotime($r['fecha'])) ?></span>
+            </div>
+          </a>
+          <div class="d-flex align-items-center gap-2 ms-2 flex-shrink-0">
+            <span class="badge bg-success"><?= $r['ok'] ?> ✔</span>
             <span class="badge bg-danger"><?= $r['incompletos'] ?> ✘</span>
+            <form method="post" class="d-inline"
+                  onsubmit="return confirm('¿Eliminar «<?= h(addslashes($r['nombre_archivo'])) ?>» y todos sus productos? Esta acción no se puede deshacer.')">
+              <input type="hidden" name="action"  value="delete_import">
+              <input type="hidden" name="imp_id"  value="<?= $r['id'] ?>">
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar importación">
+                <i class="bi bi-trash3"></i>
+              </button>
+            </form>
           </div>
-        </a>
+        </div>
         <?php endforeach; ?>
       </div>
     </div>

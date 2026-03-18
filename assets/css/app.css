@@ -178,8 +178,8 @@ body {
 }
 
 .tabla-productos td { vertical-align: middle; }
-.tabla-productos tr.estado-ok         { background: #f0faf4; }
-.tabla-productos tr.estado-incompleto { background: #fff8f8; }
+.tabla-productos tr.estado-ok         { background: #e8f5e9; border-left: 3px solid #1E8449; }
+.tabla-productos tr.estado-incompleto { background: #fff3f3; border-left: 3px solid #C0392B; }
 
 /* ── PROGRESS BAR ────────────────────────────────────────────── */
 .prog-wrap {

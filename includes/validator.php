@@ -74,7 +74,7 @@ class Validator {
             'limite_colageno'=> ['label'=>'Límite colágeno/proteína (%)',    'paso'=>1, 'critico'=>true],
             'origen_pais'    => ['label'=>'País de origen',                  'paso'=>2, 'critico'=>true],
             'ingredientes'   => ['label'=>'Lista de ingredientes',           'paso'=>3, 'critico'=>true],
-            'alergenos'      => ['label'=>'Alérgenos declarados y resaltados','paso'=>3,'critico'=>true],
+            'alergenos_lista'=> ['label'=>'Alérgenos declarados y resaltados','paso'=>3,'critico'=>true],
             'conservacion'   => ['label'=>'Condiciones de conservación',     'paso'=>4, 'critico'=>true],
             'instruccion_uso'=> ['label'=>'Instrucción de cocinado',         'paso'=>4, 'critico'=>true],
             'peso_unidad'    => ['label'=>'Peso / unidad y precio por kg',   'paso'=>1, 'critico'=>false],
@@ -84,7 +84,7 @@ class Validator {
             'especie'        => ['label'=>'Especie animal',                   'paso'=>1, 'critico'=>true],
             'origen_pais'    => ['label'=>'País de origen',                   'paso'=>2, 'critico'=>true],
             'ingredientes'   => ['label'=>'Lista de ingredientes completa',   'paso'=>3, 'critico'=>true],
-            'alergenos'      => ['label'=>'Alérgenos declarados y resaltados','paso'=>3,'critico'=>true],
+            'alergenos_lista'=> ['label'=>'Alérgenos declarados y resaltados','paso'=>3,'critico'=>true],
             'conservacion'   => ['label'=>'Condiciones de conservación',      'paso'=>4, 'critico'=>true],
             'instruccion_uso'=> ['label'=>'Instrucción de cocinado (si crudo)','paso'=>4,'critico'=>true],
             'nutricional'    => ['label'=>'Información nutricional (tabla)',   'paso'=>5, 'critico'=>true],
@@ -96,7 +96,7 @@ class Validator {
             'especie'        => ['label'=>'Especie animal',                    'paso'=>1, 'critico'=>true],
             'origen_pais'    => ['label'=>'País de origen',                    'paso'=>2, 'critico'=>true],
             'ingredientes'   => ['label'=>'Lista de ingredientes completa',    'paso'=>3, 'critico'=>true],
-            'alergenos'      => ['label'=>'Alérgenos declarados y resaltados', 'paso'=>3,'critico'=>true],
+            'alergenos_lista'=> ['label'=>'Alérgenos declarados y resaltados', 'paso'=>3,'critico'=>true],
             'conservacion'   => ['label'=>'Condiciones de conservación',       'paso'=>4, 'critico'=>true],
             'nutricional'    => ['label'=>'Información nutricional (tabla)',    'paso'=>5, 'critico'=>true],
             'peso_unidad'    => ['label'=>'Peso / unidad y precio por kg',     'paso'=>1, 'critico'=>false],
@@ -139,6 +139,19 @@ class Validator {
         $tipo   = $producto['tipo_validado'] ?? $producto['tipo_detectado'] ?? 'otro';
         $campos = json_decode($producto['campos_json'] ?? '{}', true) ?: [];
         $reqs   = self::$camposRequeridos[$tipo] ?? self::$camposRequeridos['otro'];
+
+        // Normalizar origen_pais a partir de campos específicos de especie
+        if (empty($campos['origen_pais'])) {
+            $campos['origen_pais'] = $campos['origen_nacido']
+                ?? $campos['origen_cria']
+                ?? $campos['origen_sacrificado']
+                ?? '';
+        }
+
+        // nutricional se considera cubierto si hay al menos kcal o kj
+        if (empty($campos['nutricional']) && (!empty($campos['energia_kcal']) || !empty($campos['energia_kj']))) {
+            $campos['nutricional'] = 'ok';
+        }
 
         $faltanCriticos    = [];
         $faltanSecundarios = [];

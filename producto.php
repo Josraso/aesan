@@ -49,6 +49,19 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
         if ($v !== '' && $v !== null) $campos[$k] = $v;
     }
 
+    // Normalizar origen_pais a partir de campos específicos de especie
+    if (empty($campos['origen_pais'])) {
+        $campos['origen_pais'] = $campos['origen_nacido']
+            ?? $campos['origen_cria']
+            ?? $campos['origen_sacrificado']
+            ?? '';
+    }
+
+    // nutricional: marcar como cubierto si hay al menos un valor energético
+    if (empty($campos['nutricional']) && (!empty($campos['energia_kcal']) || !empty($campos['energia_kj']))) {
+        $campos['nutricional'] = 'ok';
+    }
+
     $prodData = ['tipo_validado'=>$tipoNuevo,'tipo_detectado'=>$tipoNuevo,'campos_json'=>json_encode($campos)];
     $val      = Validator::validar($prodData);
     $estadoNuevo = $val['estado'];
@@ -457,7 +470,21 @@ layout_start('Editar — ' . $prod['nombre']);
       </div>
       <div class="card-body p-2">
         <?php foreach (Validator::getCamposRequeridos($tipo) as $key => $info): ?>
-        <?php $cubierto = !empty($campos[$key]); ?>
+        <?php
+        // Comprobaciones especiales para campos derivados
+        if ($key === 'origen_pais') {
+            $cubierto = !empty($campos['origen_pais'])
+                || !empty($campos['origen_nacido'])
+                || !empty($campos['origen_cria'])
+                || !empty($campos['origen_sacrificado']);
+        } elseif ($key === 'nutricional') {
+            $cubierto = !empty($campos['nutricional'])
+                || !empty($campos['energia_kcal'])
+                || !empty($campos['energia_kj']);
+        } else {
+            $cubierto = !empty($campos[$key]);
+        }
+        ?>
         <div class="d-flex align-items-center gap-2 py-1 border-bottom" style="font-size:.82rem">
           <i class="bi bi-<?= $cubierto?'check-circle text-success':'x-circle text-danger' ?>"></i>
           <span class="<?= $cubierto?'':'text-danger' ?>"><?= h($info['label']) ?></span>
