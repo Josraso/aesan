@@ -170,13 +170,49 @@ if (in_array($tipo, ['carne_picada','preparado_carne'])) {
 }
 
 // Auto-rellenar contenido_pack desde las descripciones originales (solo si está vacío)
+$packAutodetected = false;
 if ($tipo === 'pack' && empty($campos['contenido_pack'])) {
-    $textoDesc = strip_tags(
-        ($prod['desc_corta_original'] ?? '') . ' ' . ($prod['desc_larga_original'] ?? '')
-    );
-    $textoDesc = preg_replace('/\s+/', ' ', trim($textoDesc));
-    if ($textoDesc) {
-        $campos['contenido_pack'] = mb_substr($textoDesc, 0, 600);
+    // Intentar extraer componentes desde desc_corta primero, luego desc_larga
+    $candidatos = [];
+    foreach ([
+        html_entity_decode(strip_tags($prod['desc_corta_original'] ?? ''), ENT_HTML5, 'UTF-8'),
+        html_entity_decode(strip_tags($prod['desc_larga_original'] ?? ''), ENT_HTML5, 'UTF-8'),
+    ] as $txt) {
+        $txt = preg_replace('/\s+/', ' ', trim($txt));
+        if (!$txt) continue;
+
+        // Probar separadores típicos de listas de componentes (orden de preferencia)
+        foreach (['·','•','\|',';',"\r\n","\n"] as $sep) {
+            $parts = preg_split('/' . $sep . '/u', $txt);
+            if (count($parts) >= 2) {
+                $items = [];
+                foreach ($parts as $p) {
+                    $p = trim($p);
+                    // Solo aceptar líneas con longitud razonable y al menos 1 dígito o medida (peso/vol)
+                    if ($p && mb_strlen($p) >= 4 && mb_strlen($p) <= 120) {
+                        $items[] = $p;
+                    }
+                }
+                if (count($items) >= 2) { $candidatos = $items; break 2; }
+            }
+        }
+
+        // Fallback: buscar patrones "nombre NNNg/ml/kg/ud" con regex
+        if (!$candidatos) {
+            preg_match_all(
+                '/[A-ZÁÉÍÓÚÑÜ][^.,;·•\|]{3,80}?(?:\d+\s*(?:g|kg|ml|l|cl|ud|unidad|uds|unidades)\b)/ui',
+                $txt, $m
+            );
+            if (!empty($m[0]) && count($m[0]) >= 2) {
+                $candidatos = array_slice($m[0], 0, 12);
+                break;
+            }
+        }
+    }
+
+    if ($candidatos) {
+        $campos['contenido_pack'] = implode("\n", $candidatos);
+        $packAutodetected = true;
     }
 }
 
@@ -468,14 +504,23 @@ window.BASE_URL    = '<?= BASE_URL ?>';
 
         <?php if ($tipo === 'pack'): ?>
         <!-- ── Contenido del pack ── -->
+        <?php if ($packAutodetected): ?>
+        <div class="col-12">
+          <div class="alert alert-warning py-2 mb-0">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Contenido auto-detectado</strong> desde la descripción original.
+            Revisa que los componentes son correctos y edítalos si es necesario.
+          </div>
+        </div>
+        <?php endif; ?>
         <div class="col-12 campo-aesan critico">
           <label class="form-label">Contenido del pack *
             <i class="bi bi-info-circle small" data-bs-toggle="tooltip"
-               title="Describe los componentes: nombre, cantidad/peso de cada elemento."></i>
+               title="Un componente por línea. Indica nombre y peso/cantidad de cada elemento."></i>
           </label>
-          <textarea name="contenido_pack" id="contenido_pack" class="form-control" rows="5"
-            placeholder="Ej: Chuletón de vacuno madurado 400 g · Vino tinto Ribera del Duero 375 ml · Sal marina 50 g"><?= h($campos['contenido_pack'] ?? '') ?></textarea>
-          <div class="form-text">Lista los componentes del pack separados por · o salto de línea.</div>
+          <textarea name="contenido_pack" id="contenido_pack" class="form-control" rows="6"
+            placeholder="Ej:&#10;Chuletón de vacuno madurado 400 g&#10;Vino tinto Ribera del Duero 375 ml&#10;Sal marina artesanal 50 g"><?= h($campos['contenido_pack'] ?? '') ?></textarea>
+          <div class="form-text">Un componente por línea. Se mostrará en la ficha del producto como listado de contenido.</div>
         </div>
         <?php else: ?>
         <!-- ── Plantilla ingredientes ── -->
@@ -507,7 +552,7 @@ window.BASE_URL    = '<?= BASE_URL ?>';
         <div class="col-12">
           <label class="form-label fw-semibold">
             Alérgenos
-            <span class="text-muted fw-normal small">(detección automática — marca/desmarca manualmente)</span>
+            <span class="text-muted fw-normal small">(marca/desmarca — la detección automática sugiere sin sobreescribir)</span>
           </label>
 
           <!-- "Sin alérgenos" declaración explícita -->
@@ -959,12 +1004,12 @@ document.addEventListener('click', e => {
   const hiddenAlg  = document.getElementById('alergenos_lista');
   const wrapTags   = document.getElementById('wrap-alg-tags');
   const tagNinguno = document.getElementById('tag-ninguno');
+  const hintEl     = document.getElementById('alg-hint');
   if (!hiddenAlg) return;
 
   function getActiveTags() {
-    return [...document.querySelectorAll('.alg-tag.active[data-alg]')]
-      .map(t => t.dataset.alg)
-      .filter(a => a !== 'ninguno');
+    return [...document.querySelectorAll('#wrap-alg-tags .alg-tag.active[data-alg]')]
+      .map(t => t.dataset.alg);
   }
 
   function syncHidden() {
@@ -972,17 +1017,11 @@ document.addEventListener('click', e => {
     hiddenAlg.value = sinAlg ? 'ninguno' : getActiveTags().join(',');
   }
 
-  // Toggle tag individual
-  document.querySelectorAll('.alg-tag[data-alg]:not(#tag-ninguno)').forEach(tag => {
+  // Toggle tag individual — siempre funciona, nunca lo sobreescribe la detección
+  wrapTags?.querySelectorAll('.alg-tag[data-alg]').forEach(tag => {
     tag.addEventListener('click', () => {
+      if (tagNinguno?.classList.contains('active')) return; // bloqueado por "ninguno"
       tag.classList.toggle('active');
-      // Si se activa cualquiera, desactivar "ninguno"
-      if (tag.classList.contains('active') && tagNinguno?.classList.contains('active')) {
-        tagNinguno.classList.remove('active');
-        tagNinguno.style.background = '';
-        tagNinguno.style.color = '';
-        if (wrapTags) { wrapTags.style.opacity = ''; wrapTags.style.pointerEvents = ''; }
-      }
       syncHidden();
     });
   });
@@ -999,35 +1038,92 @@ document.addEventListener('click', e => {
         wrapTags.style.pointerEvents= active ? 'none': '';
       }
       if (active) {
-        // Desactivar todos los tags individuales
-        document.querySelectorAll('.alg-tag.active[data-alg]:not(#tag-ninguno)').forEach(t => t.classList.remove('active'));
+        wrapTags?.querySelectorAll('.alg-tag.active').forEach(t => t.classList.remove('active'));
       }
       syncHidden();
     });
   }
 
-  // Detección automática al escribir en ingredientes o contenido_pack
-  function detectarDesdeTexto(texto) {
-    if (tagNinguno?.classList.contains('active')) return; // modo manual "ninguno"
-    const lower = texto.toLowerCase();
-    document.querySelectorAll('.alg-tag[data-alg]:not(#tag-ninguno)').forEach(tag => {
-      const key    = tag.dataset.alg;
-      const terms  = ALERGENOS[key] || [];
+  // ── Detección: SOLO SUGIERE — no toca las tags activas ──
+  // Muestra un banner con los encontrados y un botón "Aplicar"
+  let sugeridos = [];
+
+  function sugerirDesdeTexto(texto) {
+    if (!texto.trim() || tagNinguno?.classList.contains('active')) {
+      ocultarSugerencia(); return;
+    }
+    const lower   = texto.toLowerCase();
+    const activos = new Set(getActiveTags());
+    sugeridos = [];
+    Object.entries(ALERGENOS).forEach(([key, terms]) => {
       const detectado = terms.some(t => lower.includes(t.toLowerCase()));
-      tag.classList.toggle('active', detectado);
+      if (detectado && !activos.has(key)) sugeridos.push(key);
     });
-    syncHidden();
-    const n = getActiveTags().length;
-    const hint = document.getElementById('alg-hint');
-    if (hint) hint.textContent = n > 0 ? `⚠ ${n} alérgeno(s) detectado(s) automáticamente` : '';
+    if (sugeridos.length > 0) {
+      mostrarSugerencia(sugeridos);
+    } else {
+      ocultarSugerencia();
+    }
   }
 
-  document.getElementById('ingredientes')?.addEventListener('input', e => detectarDesdeTexto(e.target.value));
-  document.getElementById('contenido_pack')?.addEventListener('input', e => detectarDesdeTexto(e.target.value));
+  function labelAlg(key) {
+    const labels = {
+      gluten:'Gluten',crustaceos:'Crustáceos',huevos:'Huevos',pescado:'Pescado',
+      cacahuetes:'Cacahuetes',soja:'Soja',lacteos:'Lácteos',frutos_secos:'Frutos secos',
+      apio:'Apio',mostaza:'Mostaza',sesamo:'Sésamo',sulfitos:'Sulfitos',
+      altramuces:'Altramuces',moluscos:'Moluscos'
+    };
+    return labels[key] || key;
+  }
 
-  // Detección inicial al cargar
-  const srcEl = document.getElementById('ingredientes') || document.getElementById('contenido_pack');
-  if (srcEl && srcEl.value) detectarDesdeTexto(srcEl.value);
+  function mostrarSugerencia(lista) {
+    let banner = document.getElementById('alg-sugerencia-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'alg-sugerencia-banner';
+      banner.className = 'alert alert-warning py-2 px-3 mt-2 d-flex align-items-center justify-content-between gap-2';
+      hintEl?.parentNode.insertBefore(banner, hintEl);
+    }
+    const nombres = lista.map(labelAlg).join(', ');
+    banner.innerHTML = `
+      <span class="small"><i class="bi bi-search"></i>
+        <strong>Detectado en el texto:</strong> ${nombres}
+        <span class="text-muted">(no marcados aún)</span>
+      </span>
+      <div class="d-flex gap-2 flex-shrink-0">
+        <button type="button" class="btn btn-sm btn-warning" id="btn-aplicar-alg">
+          <i class="bi bi-plus-circle"></i> Añadir
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-ignorar-alg">
+          Ignorar
+        </button>
+      </div>`;
+    banner.style.display = '';
+    document.getElementById('btn-aplicar-alg')?.addEventListener('click', () => {
+      sugeridos.forEach(key => {
+        const tag = wrapTags?.querySelector(`.alg-tag[data-alg="${key}"]`);
+        tag?.classList.add('active');
+      });
+      syncHidden();
+      ocultarSugerencia();
+    });
+    document.getElementById('btn-ignorar-alg')?.addEventListener('click', ocultarSugerencia);
+  }
+
+  function ocultarSugerencia() {
+    document.getElementById('alg-sugerencia-banner')?.remove();
+  }
+
+  document.getElementById('ingredientes')?.addEventListener('input',    e => sugerirDesdeTexto(e.target.value));
+  document.getElementById('contenido_pack')?.addEventListener('input',  e => sugerirDesdeTexto(e.target.value));
+
+  // Al cargar: restaurar estado guardado (NO auto-detectar, el usuario ya lo validó antes)
+  // Solo lanzar sugerencia si el campo está vacío (producto nuevo)
+  const algGuardado = hiddenAlg.value;
+  if (!algGuardado && tagNinguno && !tagNinguno.classList.contains('active')) {
+    const srcEl = document.getElementById('ingredientes') || document.getElementById('contenido_pack');
+    if (srcEl && srcEl.value) sugerirDesdeTexto(srcEl.value);
+  }
 })();
 
 // ── Sin aditivos: toggle ──────────────────────────────────────────────────────
