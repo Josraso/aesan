@@ -56,13 +56,21 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
     unset($nuevos['tipo_validado'], $nuevos['desc_corta_usar'], $nuevos['desc_corta_sugerida']);
 
     // Campos que deben actualizarse aunque vengan vacíos (para poder borrar el valor)
-    $camposBorrables = ['alergenos_lista', 'aditivos', 'contenido_pack', 'instruccion_uso'];
+    $camposBorrables = [
+        'alergenos_lista', 'aditivos', 'contenido_pack', 'instruccion_uso',
+        'energia_kj', 'energia_kcal', 'grasas', 'grasas_saturadas',
+        'hidratos', 'azucares', 'proteinas', 'sal',
+    ];
     foreach ($camposBorrables as $cb) {
         if (array_key_exists($cb, $nuevos)) {
             $campos[$cb] = $nuevos[$cb];
             unset($nuevos[$cb]);
         }
     }
+
+    // nutricional_incluir: checkbox → explícitamente '1' o '0'
+    $campos['nutricional_incluir'] = isset($nuevos['nutricional_incluir']) ? '1' : '0';
+    unset($nuevos['nutricional_incluir']);
 
     foreach ($nuevos as $k => $v) {
         if ($v !== '' && $v !== null) $campos[$k] = $v;
@@ -76,9 +84,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
             ?? '';
     }
 
-    // nutricional: marcar como cubierto si hay valor energético
-    if (empty($campos['nutricional']) && (!empty($campos['energia_kcal']) || !empty($campos['energia_kj']))) {
-        $campos['nutricional'] = 'ok';
+    // nutricional: cubierto si hay datos energéticos O si el usuario lo desactivó explícitamente
+    if (empty($campos['nutricional'])) {
+        $nutDesactivado = isset($campos['nutricional_incluir']) && $campos['nutricional_incluir'] === '0';
+        if ($nutDesactivado || !empty($campos['energia_kcal']) || !empty($campos['energia_kj'])) {
+            $campos['nutricional'] = 'ok';
+        }
     }
 
     $prodData    = ['tipo_validado'=>$tipoNuevo,'tipo_detectado'=>$tipoNuevo,'campos_json'=>json_encode($campos)];
@@ -734,14 +745,50 @@ window.BASE_URL    = '<?= BASE_URL ?>';
           'grasas_saturadas'=>'Saturadas (g)','hidratos'=>'H. carbono (g)',
           'azucares'=>'Azúcares (g)','proteinas'=>'Proteínas (g)','sal'=>'Sal (g)',
         ];
+
+        // Tipos que requieren tabla nutricional obligatoriamente
+        $tiposConNutri = ['carne_picada', 'preparado_carne', 'producto_carnico'];
+        $requiereNutri = in_array($tipo, $tiposConNutri);
+
+        // Determinar si incluir nutricional:
+        // – Si ya tiene valor guardado, respetar ese valor
+        // – Si no tiene valor guardado: ON para tipos obligatorios, OFF para el resto
+        $tieneValorGuardado = isset($campos['nutricional_incluir']);
+        $tieneDataNutri     = !empty($campos['energia_kcal']) || !empty($campos['energia_kj']);
+        if ($tieneValorGuardado) {
+            $nutIncluir = $campos['nutricional_incluir'] === '1';
+        } else {
+            $nutIncluir = $requiereNutri || $tieneDataNutri;
+        }
       ?>
       <h5 class="mb-1"><i class="bi bi-bar-chart"></i> Información nutricional</h5>
-      <p class="text-muted small mb-3">Obligatoria para preparados y productos cárnicos. Las kcal se calculan automáticamente.</p>
-      <?php if ($tipo==='carne_fresca'): ?>
-      <div class="alert alert-info small"><i class="bi bi-info-circle"></i>
-        La carne fresca sin aditivos está <strong>exenta</strong> de tabla nutricional. Puedes rellenarla de forma voluntaria.
+      <p class="text-muted small mb-2">
+        <?= $requiereNutri
+            ? 'Obligatoria para este tipo de producto. Las kcal se calculan automáticamente.'
+            : 'Opcional para este tipo de producto. Actívala si quieres incluirla.' ?>
+      </p>
+
+      <!-- Toggle activar/desactivar tabla nutricional -->
+      <div class="d-flex align-items-center gap-3 mb-3 p-2 bg-light rounded">
+        <div class="form-check form-switch mb-0">
+          <input class="form-check-input" type="checkbox" role="switch"
+                 id="chk-nutri-incluir" name="nutricional_incluir" value="1"
+                 <?= $nutIncluir ? 'checked' : '' ?>>
+          <label class="form-check-label fw-semibold" for="chk-nutri-incluir">
+            Incluir tabla nutricional en la exportación
+          </label>
+        </div>
+        <?php if (!$requiereNutri): ?>
+        <span class="badge bg-secondary">Opcional</span>
+        <?php else: ?>
+        <span class="badge bg-primary">Obligatoria</span>
+        <?php endif; ?>
+        <?php if ($nutIncluir && $tieneDataNutri): ?>
+        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" id="btn-borrar-nutri">
+          <i class="bi bi-trash"></i> Borrar valores
+        </button>
+        <?php endif; ?>
       </div>
-      <?php endif; ?>
 
       <?php if ($nutRef): ?>
       <div class="alert alert-success py-2 mb-3">
@@ -778,6 +825,7 @@ window.BASE_URL    = '<?= BASE_URL ?>';
       </script>
       <?php endif; ?>
 
+      <div id="wrap-nutri" <?= $nutIncluir ? '' : 'style="display:none"' ?>>
       <div class="row g-3">
         <div class="col-md-8">
           <label class="form-label fw-semibold">Valor energético</label>
@@ -806,6 +854,8 @@ window.BASE_URL    = '<?= BASE_URL ?>';
         </div>
         <?php endforeach; ?>
       </div>
+
+      </div><!-- /wrap-nutri -->
 
       <!-- Preview AESAN -->
       <div class="mt-4">
@@ -1165,6 +1215,25 @@ document.addEventListener('click', e => {
     if (lbl)     lbl.style.display     = sin ? '' : 'none';
     if (ninguno) ninguno.disabled      = !sin;
     if (campo)   campo.disabled        = sin;
+  });
+})();
+
+// ── Tabla nutricional: toggle incluir/excluir + borrar valores ───────────────
+(function() {
+  const chk  = document.getElementById('chk-nutri-incluir');
+  const wrap = document.getElementById('wrap-nutri');
+  if (!chk || !wrap) return;
+
+  chk.addEventListener('change', () => {
+    wrap.style.display = chk.checked ? '' : 'none';
+  });
+
+  document.getElementById('btn-borrar-nutri')?.addEventListener('click', () => {
+    ['energia_kj','energia_kcal','grasas','grasas_saturadas',
+     'hidratos','azucares','proteinas','sal'].forEach(name => {
+      const el = document.querySelector(`[name="${name}"]`);
+      if (el) { el.value = ''; el.dispatchEvent(new Event('input')); }
+    });
   });
 })();
 

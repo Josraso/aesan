@@ -36,7 +36,8 @@ class Exporter {
 
         // ── Tabla nutricional ─────────────────────────────────────────────────
         $nutricionalHtml = '';
-        if (!empty($c['energia_kcal']) || !empty($c['energia_kj'])) {
+        $nutIncluir = ($c['nutricional_incluir'] ?? '1') !== '0'; // default ON para compatibilidad
+        if ($nutIncluir && (!empty($c['energia_kcal']) || !empty($c['energia_kj']))) {
             $nutricionalHtml = self::tablaNutricional($c);
         }
 
