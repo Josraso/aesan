@@ -55,6 +55,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
     $descSugerida = $nuevos['desc_corta_sugerida']       ?? $prod['desc_corta_sugerida'];
     unset($nuevos['tipo_validado'], $nuevos['desc_corta_usar'], $nuevos['desc_corta_sugerida']);
 
+    // Campos que deben actualizarse aunque vengan vacíos (para poder borrar el valor)
+    $camposBorrables = ['alergenos_lista', 'aditivos', 'contenido_pack', 'instruccion_uso'];
+    foreach ($camposBorrables as $cb) {
+        if (array_key_exists($cb, $nuevos)) {
+            $campos[$cb] = $nuevos[$cb];
+            unset($nuevos[$cb]);
+        }
+    }
+
     foreach ($nuevos as $k => $v) {
         if ($v !== '' && $v !== null) $campos[$k] = $v;
     }
@@ -557,21 +566,21 @@ window.BASE_URL    = '<?= BASE_URL ?>';
 
           <!-- "Sin alérgenos" declaración explícita -->
           <div class="mb-2">
-            <span class="alg-tag alg-ninguno <?= $sinAlergenos ? 'active' : '' ?>"
-                  id="tag-ninguno" data-alg="ninguno"
-                  style="background:<?= $sinAlergenos ? '#198754' : '' ?>;color:<?= $sinAlergenos ? '#fff' : '' ?>">
+            <button type="button" class="alg-tag alg-ninguno <?= $sinAlergenos ? 'active' : '' ?>"
+                    id="tag-ninguno" data-alg="ninguno"
+                    style="background:<?= $sinAlergenos ? '#198754' : '' ?>;color:<?= $sinAlergenos ? '#fff' : '' ?>">
               <i class="bi bi-shield-check"></i> Sin alérgenos (declarar ausencia)
-            </span>
+            </button>
           </div>
 
           <div class="mb-2" id="wrap-alg-tags" <?= $sinAlergenos ? 'style="opacity:.4;pointer-events:none"' : '' ?>>
             <?php foreach (Validator::ALERGENOS as $key => $terms): ?>
-            <span class="alg-tag <?= in_array($key,$algsGuardados)?'active':'' ?>" data-alg="<?= $key ?>">
+            <button type="button" class="alg-tag <?= in_array($key,$algsGuardados)?'active':'' ?>" data-alg="<?= $key ?>">
               <?= Validator::labelAlergeno($key) ?>
-            </span>
+            </button>
             <?php endforeach; ?>
           </div>
-          <div id="alg-hint" class="small fw-semibold text-warning mb-2"></div>
+          <div id="alg-hint" class="small text-muted mb-2"></div>
           <input type="hidden" name="alergenos_lista" id="alergenos_lista"
                  value="<?= h($algsVal) ?>">
         </div>
