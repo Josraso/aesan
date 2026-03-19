@@ -48,8 +48,11 @@ foreach ($prods as $p) {
     Historial::registrar($p['id'], Auth::uid(), 'exportado', 'Exportado al CSV de PrestaShop');
 }
 
+// Importación para heredar operador
+$importRow = DB::row('SELECT * FROM importaciones WHERE id=?', [$impId]) ?: [];
+
 // Generar CSV
-$csv      = Exporter::exportarCSV($prods);
+$csv      = Exporter::exportarCSV($prods, $importRow);
 $filename = 'prestashop_aesan_' . date('Ymd_His') . '.csv';
 
 header('Content-Type: text/csv; charset=utf-8');

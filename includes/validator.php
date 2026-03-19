@@ -10,11 +10,15 @@ class Validator {
         'carne_picada'    => 'Carne picada',
         'preparado_carne' => 'Preparado de carne',
         'producto_carnico'=> 'Producto cárnico',
+        'pack'            => 'Pack / Lote',
         'otro'            => 'Otro',
     ];
 
     // Palabras clave para detección automática (orden importa: más específico primero)
     private static array $keywords = [
+        'pack'            => ['pack','lote de','cesta de','caja regalo','selección de carne',
+                              'surtido de','kit carne','estuche','regalo cárnico','pack regalo',
+                              'pack carne','pack premium'],
         'carne_picada'    => ['picada','hamburguesa','burger','burger meat','carne molida'],
         'preparado_carne' => ['preparado','adobado','marinado','albóndiga','salchicha fresca',
                               'butifarra fresca','chorizo fresco','morcilla fresca','kebab',
@@ -103,6 +107,14 @@ class Validator {
             'aditivos'       => ['label'=>'Aditivos utilizados',               'paso'=>3, 'critico'=>false],
             'instruccion_uso'=> ['label'=>'Instrucción de uso (si procede)',   'paso'=>4, 'critico'=>false],
         ],
+        'pack' => [
+            'denominacion'   => ['label'=>'Denominación del pack',          'paso'=>1, 'critico'=>true],
+            'contenido_pack' => ['label'=>'Contenido del pack',             'paso'=>3, 'critico'=>true],
+            'origen_pais'    => ['label'=>'País de origen de la carne',     'paso'=>2, 'critico'=>true],
+            'alergenos_lista'=> ['label'=>'Alérgenos del conjunto',         'paso'=>3, 'critico'=>true],
+            'conservacion'   => ['label'=>'Condiciones de conservación',    'paso'=>4, 'critico'=>true],
+            'peso_unidad'    => ['label'=>'Peso / contenido del pack',      'paso'=>1, 'critico'=>false],
+        ],
         'otro' => [
             'denominacion'   => ['label'=>'Denominación del alimento',  'paso'=>1, 'critico'=>true],
             'conservacion'   => ['label'=>'Condiciones de conservación','paso'=>4, 'critico'=>false],
@@ -151,6 +163,16 @@ class Validator {
         // nutricional se considera cubierto si hay al menos kcal o kj
         if (empty($campos['nutricional']) && (!empty($campos['energia_kcal']) || !empty($campos['energia_kj']))) {
             $campos['nutricional'] = 'ok';
+        }
+
+        // alergenos_lista = 'ninguno' se considera declaración explícita (cumple Art. 21)
+        if (($campos['alergenos_lista'] ?? '') === 'ninguno') {
+            $campos['alergenos_lista'] = 'ok_ninguno';
+        }
+
+        // aditivos = 'ninguno' se considera declaración explícita
+        if (($campos['aditivos'] ?? '') === 'ninguno') {
+            $campos['aditivos'] = 'ok_ninguno';
         }
 
         $faltanCriticos    = [];

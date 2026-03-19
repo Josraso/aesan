@@ -25,7 +25,8 @@ $paso   = max(1, min(5, (int)($_GET['paso'] ?? 1)));
 // ── AJAX: preview bloque AESAN ───────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='preview') {
     header('Content-Type: application/json');
-    $c    = $_POST;
+    $imp2 = $impId ? (DB::row('SELECT * FROM importaciones WHERE id=?', [$impId]) ?: []) : [];
+    $c    = Exporter::prepararCampos($_POST, $imp2);
     $tipo = $prod['tipo_validado'] ?? 'otro';
     $html = Exporter::generarBloqueAesan($c, $tipo);
     echo json_encode(['html' => $html]);
@@ -166,6 +167,17 @@ if (in_array($tipo, ['carne_picada','preparado_carne'])) {
     $lg = $campos['limite_grasa']    ?? '';
     $lc = $campos['limite_colageno'] ?? '';
     if ($d) $sugerencia = $d . ($lg||$lc ? " (≤{$lg}% grasa" . ($lc?", ≤{$lc}% colágeno/prot.":"") . ")" : "");
+}
+
+// Auto-rellenar contenido_pack desde las descripciones originales (solo si está vacío)
+if ($tipo === 'pack' && empty($campos['contenido_pack'])) {
+    $textoDesc = strip_tags(
+        ($prod['desc_corta_original'] ?? '') . ' ' . ($prod['desc_larga_original'] ?? '')
+    );
+    $textoDesc = preg_replace('/\s+/', ' ', trim($textoDesc));
+    if ($textoDesc) {
+        $campos['contenido_pack'] = mb_substr($textoDesc, 0, 600);
+    }
 }
 
 // Sugerencias JS
@@ -325,24 +337,6 @@ window.BASE_URL    = '<?= BASE_URL ?>';
           </div>
         </div>
 
-        <div class="col-md-8">
-          <label class="form-label">Operador responsable
-            <i class="bi bi-info-circle small" data-bs-toggle="tooltip"
-               title="Reglamento (UE) 1169/2011, Art. 9.1.h — nombre y dirección del operador responsable de la información alimentaria (obligatorio)"></i>
-          </label>
-          <input type="text" name="operador_nombre" id="operador_nombre" class="form-control"
-                 value="<?= h($campos['operador_nombre'] ?? '') ?>"
-                 placeholder="Ej: Carnicería García S.L.">
-          <div class="form-text text-muted">Nombre del operador responsable de la información alimentaria.</div>
-        </div>
-
-        <div class="col-md-8">
-          <label class="form-label">Dirección del operador</label>
-          <input type="text" name="operador_direccion" id="operador_direccion" class="form-control"
-                 value="<?= h($campos['operador_direccion'] ?? '') ?>"
-                 placeholder="Ej: Calle Mayor 12, 28001 Madrid">
-        </div>
-
         <?php if ($sugerencia && $sugerencia !== $prod['desc_corta_original']): ?>
         <div class="col-12">
           <div class="alert alert-warning">
@@ -456,14 +450,36 @@ window.BASE_URL    = '<?= BASE_URL ?>';
       </div>
 
       <?php elseif ($paso===3): // ═══ PASO 3: Ingredientes ══════════════════ ?>
-      <?php $algsGuardados = $campos['alergenos_lista'] ? explode(',', $campos['alergenos_lista']) : []; ?>
-      <h5 class="mb-1"><i class="bi bi-list-ul"></i> Ingredientes y alérgenos</h5>
-      <p class="text-muted small mb-3">Los alérgenos se detectan automáticamente al escribir y se resaltarán en el HTML exportado.</p>
+      <?php
+        $algsVal      = $campos['alergenos_lista'] ?? '';
+        $sinAlergenos = ($algsVal === 'ninguno');
+        $algsGuardados = (!$sinAlergenos && $algsVal) ? explode(',', $algsVal) : [];
+        $sinAditivos  = (($campos['aditivos'] ?? '') === 'ninguno');
+      ?>
+      <h5 class="mb-1"><i class="bi bi-list-ul"></i>
+        <?= $tipo === 'pack' ? 'Contenido del pack y alérgenos' : 'Ingredientes y alérgenos' ?>
+      </h5>
+      <p class="text-muted small mb-3">
+        <?= $tipo === 'pack'
+            ? 'El contenido se ha pre-rellenado desde la descripción del producto. Revísalo y complétalo si es necesario. Los alérgenos se detectan automáticamente.'
+            : 'Los alérgenos se detectan automáticamente al escribir y se resaltarán en el HTML exportado.' ?>
+      </p>
       <div class="row g-3">
 
-        <?php
-        $plantillaIngredientes = Sugerencias::getIngredientes($tipo, $campos['especie'] ?? '_');
-        ?>
+        <?php if ($tipo === 'pack'): ?>
+        <!-- ── Contenido del pack ── -->
+        <div class="col-12 campo-aesan critico">
+          <label class="form-label">Contenido del pack *
+            <i class="bi bi-info-circle small" data-bs-toggle="tooltip"
+               title="Describe los componentes: nombre, cantidad/peso de cada elemento."></i>
+          </label>
+          <textarea name="contenido_pack" id="contenido_pack" class="form-control" rows="5"
+            placeholder="Ej: Chuletón de vacuno madurado 400 g · Vino tinto Ribera del Duero 375 ml · Sal marina 50 g"><?= h($campos['contenido_pack'] ?? '') ?></textarea>
+          <div class="form-text">Lista los componentes del pack separados por · o salto de línea.</div>
+        </div>
+        <?php else: ?>
+        <!-- ── Plantilla ingredientes ── -->
+        <?php $plantillaIngredientes = Sugerencias::getIngredientes($tipo, $campos['especie'] ?? '_'); ?>
         <?php if ($plantillaIngredientes): ?>
         <div class="col-12">
           <div class="alert alert-primary py-2 d-flex align-items-center justify-content-between gap-2">
@@ -485,13 +501,25 @@ window.BASE_URL    = '<?= BASE_URL ?>';
           <textarea name="ingredientes" id="ingredientes" class="form-control" rows="4"
             placeholder="Ej: Carne de vaca (99,75%), sal (0,15%), conservante: sulfito sódico (E221)…"><?= h($campos['ingredientes'] ?? '') ?></textarea>
         </div>
+        <?php endif; ?>
 
+        <!-- ── Alérgenos ── -->
         <div class="col-12">
           <label class="form-label fw-semibold">
-            Alérgenos presentes
-            <span class="text-muted fw-normal small">(detección automática — puedes marcar/desmarcar manualmente)</span>
+            Alérgenos
+            <span class="text-muted fw-normal small">(detección automática — marca/desmarca manualmente)</span>
           </label>
+
+          <!-- "Sin alérgenos" declaración explícita -->
           <div class="mb-2">
+            <span class="alg-tag alg-ninguno <?= $sinAlergenos ? 'active' : '' ?>"
+                  id="tag-ninguno" data-alg="ninguno"
+                  style="background:<?= $sinAlergenos ? '#198754' : '' ?>;color:<?= $sinAlergenos ? '#fff' : '' ?>">
+              <i class="bi bi-shield-check"></i> Sin alérgenos (declarar ausencia)
+            </span>
+          </div>
+
+          <div class="mb-2" id="wrap-alg-tags" <?= $sinAlergenos ? 'style="opacity:.4;pointer-events:none"' : '' ?>>
             <?php foreach (Validator::ALERGENOS as $key => $terms): ?>
             <span class="alg-tag <?= in_array($key,$algsGuardados)?'active':'' ?>" data-alg="<?= $key ?>">
               <?= Validator::labelAlergeno($key) ?>
@@ -500,32 +528,51 @@ window.BASE_URL    = '<?= BASE_URL ?>';
           </div>
           <div id="alg-hint" class="small fw-semibold text-warning mb-2"></div>
           <input type="hidden" name="alergenos_lista" id="alergenos_lista"
-                 value="<?= h($campos['alergenos_lista'] ?? '') ?>">
+                 value="<?= h($algsVal) ?>">
         </div>
 
-        <div class="col-12" data-tipo="preparado_carne,producto_carnico,carne_picada">
+        <!-- ── Aditivos (no aplica a pack ni carne fresca) ── -->
+        <?php if (!in_array($tipo, ['pack', 'carne_fresca'])): ?>
+        <div class="col-12">
           <label class="form-label">Aditivos utilizados</label>
-          <input type="text" name="aditivos" class="form-control"
-                 value="<?= h($campos['aditivos'] ?? '') ?>"
-                 placeholder="Ej: Conservante E221, Colorante E120…">
-          <!-- Aditivos comunes -->
-          <div class="mt-1 d-flex flex-wrap gap-1">
-            <?php foreach ([
-              'Conservante: nitrito sódico (E250)',
-              'Antioxidante: ascorbato sódico (E301)',
-              'Conservante: sulfito sódico (E221)',
-              'Colorante: cochinilla (E120)',
-              'Potenciador del sabor: glutamato monosódico (E621)',
-              'Conservante: sorbato potásico (E202)',
-            ] as $aditivo): ?>
-            <button type="button" class="btn btn-xs btn-outline-secondary append-pill"
-                    style="font-size:.7rem;padding:2px 6px"
-                    data-campo="aditivos" data-val="<?= h($aditivo) ?>">
-              + <?= h($aditivo) ?>
-            </button>
-            <?php endforeach; ?>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox" id="chk-sin-aditivos"
+                     <?= $sinAditivos ? 'checked' : '' ?>>
+              <label class="form-check-label small" for="chk-sin-aditivos">Sin aditivos</label>
+            </div>
+            <span class="text-muted small" id="lbl-sin-aditivos"
+                  <?= $sinAditivos ? '' : 'style="display:none"' ?>>
+              Se declarará explícitamente la ausencia de aditivos.
+            </span>
           </div>
+          <div id="wrap-aditivos" <?= $sinAditivos ? 'style="display:none"' : '' ?>>
+            <input type="text" name="aditivos" id="aditivos" class="form-control"
+                   value="<?= h($sinAditivos ? '' : ($campos['aditivos'] ?? '')) ?>"
+                   placeholder="Ej: Conservante E221, Colorante E120…">
+            <div class="mt-1 d-flex flex-wrap gap-1">
+              <?php foreach ([
+                'Conservante: nitrito sódico (E250)',
+                'Antioxidante: ascorbato sódico (E301)',
+                'Conservante: sulfito sódico (E221)',
+                'Colorante: cochinilla (E120)',
+                'Potenciador del sabor: glutamato monosódico (E621)',
+                'Conservante: sorbato potásico (E202)',
+              ] as $aditivo): ?>
+              <button type="button" class="btn btn-xs btn-outline-secondary append-pill"
+                      style="font-size:.7rem;padding:2px 6px"
+                      data-campo="aditivos" data-val="<?= h($aditivo) ?>">
+                + <?= h($aditivo) ?>
+              </button>
+              <?php endforeach; ?>
+            </div>
+          </div>
+          <!-- Campo oculto que se envía cuando "sin aditivos" está marcado -->
+          <input type="hidden" id="aditivos-ninguno-val" name="aditivos"
+                 value="ninguno" <?= $sinAditivos ? '' : 'disabled' ?>>
         </div>
+        <?php endif; ?>
+
       </div>
 
       <?php elseif ($paso===4): // ═══ PASO 4: Conservación ══════════════════ ?>
@@ -905,6 +952,100 @@ document.addEventListener('click', e => {
   const ap = e.target.closest('.append-pill');
   if (ap) { appendToField(ap.dataset.campo, ap.dataset.val); return; }
 });
+
+// ── Alérgenos: detección automática + tags ────────────────────────────────────
+(function() {
+  const ALERGENOS  = window.ALERGENOS || {};
+  const hiddenAlg  = document.getElementById('alergenos_lista');
+  const wrapTags   = document.getElementById('wrap-alg-tags');
+  const tagNinguno = document.getElementById('tag-ninguno');
+  if (!hiddenAlg) return;
+
+  function getActiveTags() {
+    return [...document.querySelectorAll('.alg-tag.active[data-alg]')]
+      .map(t => t.dataset.alg)
+      .filter(a => a !== 'ninguno');
+  }
+
+  function syncHidden() {
+    const sinAlg = tagNinguno?.classList.contains('active');
+    hiddenAlg.value = sinAlg ? 'ninguno' : getActiveTags().join(',');
+  }
+
+  // Toggle tag individual
+  document.querySelectorAll('.alg-tag[data-alg]:not(#tag-ninguno)').forEach(tag => {
+    tag.addEventListener('click', () => {
+      tag.classList.toggle('active');
+      // Si se activa cualquiera, desactivar "ninguno"
+      if (tag.classList.contains('active') && tagNinguno?.classList.contains('active')) {
+        tagNinguno.classList.remove('active');
+        tagNinguno.style.background = '';
+        tagNinguno.style.color = '';
+        if (wrapTags) { wrapTags.style.opacity = ''; wrapTags.style.pointerEvents = ''; }
+      }
+      syncHidden();
+    });
+  });
+
+  // Toggle "Sin alérgenos"
+  if (tagNinguno) {
+    tagNinguno.addEventListener('click', () => {
+      const active = !tagNinguno.classList.contains('active');
+      tagNinguno.classList.toggle('active', active);
+      tagNinguno.style.background = active ? '#198754' : '';
+      tagNinguno.style.color      = active ? '#fff'    : '';
+      if (wrapTags) {
+        wrapTags.style.opacity      = active ? '0.4' : '';
+        wrapTags.style.pointerEvents= active ? 'none': '';
+      }
+      if (active) {
+        // Desactivar todos los tags individuales
+        document.querySelectorAll('.alg-tag.active[data-alg]:not(#tag-ninguno)').forEach(t => t.classList.remove('active'));
+      }
+      syncHidden();
+    });
+  }
+
+  // Detección automática al escribir en ingredientes o contenido_pack
+  function detectarDesdeTexto(texto) {
+    if (tagNinguno?.classList.contains('active')) return; // modo manual "ninguno"
+    const lower = texto.toLowerCase();
+    document.querySelectorAll('.alg-tag[data-alg]:not(#tag-ninguno)').forEach(tag => {
+      const key    = tag.dataset.alg;
+      const terms  = ALERGENOS[key] || [];
+      const detectado = terms.some(t => lower.includes(t.toLowerCase()));
+      tag.classList.toggle('active', detectado);
+    });
+    syncHidden();
+    const n = getActiveTags().length;
+    const hint = document.getElementById('alg-hint');
+    if (hint) hint.textContent = n > 0 ? `⚠ ${n} alérgeno(s) detectado(s) automáticamente` : '';
+  }
+
+  document.getElementById('ingredientes')?.addEventListener('input', e => detectarDesdeTexto(e.target.value));
+  document.getElementById('contenido_pack')?.addEventListener('input', e => detectarDesdeTexto(e.target.value));
+
+  // Detección inicial al cargar
+  const srcEl = document.getElementById('ingredientes') || document.getElementById('contenido_pack');
+  if (srcEl && srcEl.value) detectarDesdeTexto(srcEl.value);
+})();
+
+// ── Sin aditivos: toggle ──────────────────────────────────────────────────────
+(function() {
+  const chk    = document.getElementById('chk-sin-aditivos');
+  const wrap   = document.getElementById('wrap-aditivos');
+  const lbl    = document.getElementById('lbl-sin-aditivos');
+  const ninguno= document.getElementById('aditivos-ninguno-val');
+  const campo  = document.getElementById('aditivos');
+  if (!chk) return;
+  chk.addEventListener('change', () => {
+    const sin = chk.checked;
+    if (wrap)    wrap.style.display    = sin ? 'none' : '';
+    if (lbl)     lbl.style.display     = sin ? '' : 'none';
+    if (ninguno) ninguno.disabled      = !sin;
+    if (campo)   campo.disabled        = sin;
+  });
+})();
 
 // ── Sugerencias rápidas de texto (conservación/instrucción) ───────────────────
 document.querySelectorAll('.sugerencia-txt').forEach(a => {

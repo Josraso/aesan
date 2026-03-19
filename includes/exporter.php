@@ -5,9 +5,26 @@ require_once __DIR__ . '/validator.php';
 
 class Exporter {
 
+    /**
+     * Mezcla el operador de la importación en $campos si el producto no tiene uno propio.
+     * Llamar antes de generarBloqueAesan cuando se disponga de $importRow.
+     */
+    public static function prepararCampos(array $campos, array $importRow = []): array {
+        if (empty($campos['operador_nombre']) && !empty($importRow['operador_nombre'])) {
+            $campos['operador_nombre']    = $importRow['operador_nombre'];
+            $campos['operador_direccion'] = $importRow['operador_direccion'] ?? '';
+        }
+        return $campos;
+    }
+
     // ── Genera el bloque HTML AESAN para insertar en la descripción larga ────
     public static function generarBloqueAesan(array $campos, string $tipo): string {
         $c = $campos;
+
+        // ── Pack: bloque especial ─────────────────────────────────────────────
+        if ($tipo === 'pack') {
+            return self::generarBloqueAesanPack($c);
+        }
 
         // ── Ingredientes con alérgenos resaltados DENTRO de la lista ──────────
         // Reglamento (UE) 1169/2011, Art. 21: los alérgenos deben destacarse
@@ -26,20 +43,20 @@ class Exporter {
         // ── Origen según especie ──────────────────────────────────────────────
         $origenHtml = self::bloqueOrigen($c);
 
-        // ── "Contiene:" — refuerzo adicional (útil cuando la lista es larga) ──
+        // ── Alérgenos: "Contiene:" o declaración explícita de ausencia ────────
         $alergenosHtml = '';
-        if (!empty($c['alergenos_lista'])) {
-            $lista = is_array($c['alergenos_lista'])
-                ? $c['alergenos_lista']
-                : explode(',', $c['alergenos_lista']);
-            $lista = array_filter(array_map('trim', $lista));
+        $alergenosVal  = trim($c['alergenos_lista'] ?? '');
+        if ($alergenosVal === 'ninguno') {
+            // Declaración explícita de ausencia de alérgenos
+            $alergenosHtml = '<p class="aesan-alergenos"><strong>Alérgenos:</strong> '
+                . 'No contiene ningún alérgeno de los listados en el Anexo II del Reglamento (UE) 1169/2011.</p>';
+        } elseif ($alergenosVal) {
+            $lista = array_filter(array_map('trim', explode(',', $alergenosVal)));
             if ($lista) {
                 $items = implode(', ', array_map(
                     fn($a) => '<strong>' . htmlspecialchars(Validator::labelAlergeno($a)) . '</strong>',
                     $lista
                 ));
-                // Nota: cuando hay lista de ingredientes, "Contiene:" es redundante pero se mantiene
-                // como refuerzo visual. El Art. 21 requiere el destacado en la propia lista.
                 $nota = $ingredientesHtml
                     ? ' <span style="font-size:.85em;color:#666">(destacados en la lista de ingredientes)</span>'
                     : '';
@@ -116,7 +133,9 @@ class Exporter {
         // ── Aviso si hay aditivos registrados que no aparecen en ingredientes ─
         $avisosHtml = '';
         $aditivos = trim($c['aditivos'] ?? '');
-        if ($aditivos && !empty($c['ingredientes'])) {
+        if ($aditivos === 'ninguno') {
+            $aditivos = ''; // declaración explícita de ausencia → no hay aviso, no hay sección
+        } elseif ($aditivos && !empty($c['ingredientes'])) {
             $ingLower      = strtolower($c['ingredientes']);
             $noEncontrados = [];
             foreach (preg_split('/[,;]+/', $aditivos) as $ad) {
@@ -131,7 +150,7 @@ class Exporter {
                     . "Inclúyelos en la lista de ingredientes: "
                     . htmlspecialchars(implode('; ', $noEncontrados)) . " -->\n";
             }
-        }
+        } // end elseif
 
         // ── Ensamblar bloque HTML ─────────────────────────────────────────────
         $html  = "\n<!-- AESAN_BLOCK_START -->\n";
@@ -152,6 +171,81 @@ class Exporter {
         if ($pesoHtml)         $html .= "  {$pesoHtml}\n";
         if ($nutricionalHtml)  $html .= "  {$nutricionalHtml}\n";
         if ($operadorHtml)     $html .= "  {$operadorHtml}\n";
+        $html .= "</div>\n";
+        $html .= "<!-- AESAN_BLOCK_END -->\n";
+
+        return $html;
+    }
+
+    // ── Bloque AESAN específico para packs / lotes ───────────────────────────
+    private static function generarBloqueAesanPack(array $c): string {
+        $denomHtml = '';
+        if (!empty($c['denominacion'])) {
+            $denomHtml = '<p class="aesan-denominacion"><strong>Denominación:</strong> '
+                . htmlspecialchars($c['denominacion']) . '</p>';
+        }
+
+        $contenidoHtml = '';
+        if (!empty($c['contenido_pack'])) {
+            $contenidoHtml = '<p class="aesan-contenido"><strong>Contenido:</strong> '
+                . nl2br(htmlspecialchars($c['contenido_pack'])) . '</p>';
+        }
+
+        $pesoHtml = '';
+        if (!empty($c['peso_unidad'])) {
+            $pesoHtml = '<p class="aesan-peso"><strong>Peso / contenido:</strong> '
+                . htmlspecialchars($c['peso_unidad']) . '</p>';
+        }
+
+        $origenHtml = self::bloqueOrigen($c);
+        // Para packs con origen simple (no especie concreta) mostrar "Origen de la carne"
+        if (!$origenHtml && !empty($c['origen_pais'])) {
+            $origenHtml = '<p class="aesan-origen"><strong>Origen de la carne:</strong> '
+                . htmlspecialchars($c['origen_pais']) . '</p>';
+        }
+
+        $alergenosHtml = '';
+        $alergenosVal  = trim($c['alergenos_lista'] ?? '');
+        if ($alergenosVal === 'ninguno') {
+            $alergenosHtml = '<p class="aesan-alergenos"><strong>Alérgenos:</strong> '
+                . 'No contiene ningún alérgeno de los listados en el Anexo II del Reglamento (UE) 1169/2011.</p>';
+        } elseif ($alergenosVal) {
+            $lista = array_filter(array_map('trim', explode(',', $alergenosVal)));
+            if ($lista) {
+                $items = implode(', ', array_map(
+                    fn($a) => '<strong>' . htmlspecialchars(Validator::labelAlergeno($a)) . '</strong>',
+                    $lista
+                ));
+                $alergenosHtml = "<p class=\"aesan-alergenos\"><strong>Contiene:</strong> {$items}</p>";
+            }
+        }
+
+        $conservHtml = '';
+        if (!empty($c['conservacion'])) {
+            $conservHtml = '<p class="aesan-conservacion"><strong>Conservación:</strong> '
+                . htmlspecialchars($c['conservacion']) . '</p>';
+        }
+
+        $operadorHtml = '';
+        if (!empty($c['operador_nombre'])) {
+            $op = htmlspecialchars($c['operador_nombre']);
+            if (!empty($c['operador_direccion'])) {
+                $op .= ' · ' . htmlspecialchars($c['operador_direccion']);
+            }
+            $operadorHtml = "<p class=\"aesan-operador\"><strong>Responsable:</strong> {$op}</p>";
+        }
+
+        $html  = "\n<!-- AESAN_BLOCK_START -->\n";
+        $html .= '<!-- AESAN_CAMPOS:' . base64_encode(json_encode(array_merge($c, ['tipo_validado' => 'pack']))) . " -->\n";
+        $html .= "<div class=\"info-alimentaria\">\n";
+        $html .= "  <h3>Información alimentaria</h3>\n";
+        if ($denomHtml)    $html .= "  {$denomHtml}\n";
+        if ($contenidoHtml)$html .= "  {$contenidoHtml}\n";
+        if ($pesoHtml)     $html .= "  {$pesoHtml}\n";
+        if ($origenHtml)   $html .= "  {$origenHtml}\n";
+        if ($alergenosHtml)$html .= "  {$alergenosHtml}\n";
+        if ($conservHtml)  $html .= "  {$conservHtml}\n";
+        if ($operadorHtml) $html .= "  {$operadorHtml}\n";
         $html .= "</div>\n";
         $html .= "<!-- AESAN_BLOCK_END -->\n";
 
@@ -239,7 +333,7 @@ class Exporter {
     }
 
     // ── Exportar array de productos a CSV para PrestaShop ────────────────────
-    public static function exportarCSV(array $productos): string {
+    public static function exportarCSV(array $productos, array $importRow = []): string {
         $delim = ';';
         $enc   = '"';
         $nl    = "\n";
@@ -248,8 +342,9 @@ class Exporter {
         $out  = self::csvRow($cols, $delim, $enc) . $nl;
 
         foreach ($productos as $p) {
-            $campos     = json_decode($p['campos_json'] ?? '{}', true) ?: [];
-            $tipo       = $p['tipo_validado'] ?? $p['tipo_detectado'] ?? 'otro';
+            $campos      = json_decode($p['campos_json'] ?? '{}', true) ?: [];
+            $campos      = self::prepararCampos($campos, $importRow);
+            $tipo        = $p['tipo_validado'] ?? $p['tipo_detectado'] ?? 'otro';
             $bloqueAesan = self::generarBloqueAesan($campos, $tipo);
             $descLarga  = self::fusionarDescripcion($p['desc_larga_original'] ?? '', $bloqueAesan);
 

@@ -41,15 +41,17 @@ function estadoBadge(string $estado): string {
 
 function tipoBadge(string $tipo): string {
     $map = [
-        'carne_fresca'    => 'bg-info text-dark',
-        'carne_picada'    => 'bg-warning text-dark',
-        'preparado_carne' => 'bg-primary',
-        'producto_carnico'=> 'bg-dark',
-        'otro'            => 'bg-secondary',
+        'carne_fresca'    => ['bg-info text-dark',    ''],
+        'carne_picada'    => ['bg-warning text-dark',  ''],
+        'preparado_carne' => ['bg-primary',            ''],
+        'producto_carnico'=> ['bg-dark',               ''],
+        'pack'            => ['bg-secondary',          'background:#6f42c1!important;color:#fff!important'],
+        'otro'            => ['bg-secondary',          ''],
     ];
-    $cls   = $map[$tipo] ?? 'bg-secondary';
+    [$cls, $style] = $map[$tipo] ?? ['bg-secondary', ''];
     $label = \Validator::labelTipo($tipo);
-    return "<span class=\"badge {$cls}\">{$label}</span>";
+    $styleAttr = $style ? " style=\"{$style}\"" : '';
+    return "<span class=\"badge {$cls}\"{$styleAttr}>{$label}</span>";
 }
 
 function porcentajeCompletado(array $producto): int {

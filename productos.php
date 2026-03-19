@@ -46,6 +46,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 $impId = (int)($_GET['imp'] ?? 0);
 if (!$impId) redirect('dashboard.php');
 
+// ── Guardar operador de importación ───────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_operador') {
+    $saveImpId = (int)($_POST['imp_id'] ?? 0);
+    if ($saveImpId) {
+        try {
+            DB::update('importaciones', [
+                'operador_nombre'    => trim($_POST['operador_nombre']    ?? '') ?: null,
+                'operador_direccion' => trim($_POST['operador_direccion'] ?? '') ?: null,
+            ], 'id=?', [$saveImpId]);
+            flash('Datos del operador guardados.', 'success');
+        } catch (\Exception $e) { flash('Error al guardar el operador.', 'error'); }
+    }
+    redirect("productos.php?imp={$saveImpId}");
+}
+
 $imp = DB::row('SELECT i.*, u.nombre AS unom FROM importaciones i JOIN usuarios u ON u.id=i.usuario_id WHERE i.id=?', [$impId]);
 if (!$imp) { flash('Importación no encontrada.','error'); redirect('dashboard.php'); }
 
@@ -104,6 +119,7 @@ if (isset($_GET['preview_id'])) {
     $p = DB::row('SELECT * FROM productos WHERE id=? AND importacion_id=?', [(int)$_GET['preview_id'], $impId]);
     if ($p) {
         $campos = json_decode($p['campos_json'] ?? '{}', true) ?: [];
+        $campos = Exporter::prepararCampos($campos, $imp);
         $tipo   = $p['tipo_validado'] ?? 'otro';
         $bloque = Exporter::generarBloqueAesan($campos, $tipo);
         $final  = Exporter::fusionarDescripcion($p['desc_larga_original'] ?? '', $bloque);
@@ -147,6 +163,63 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
     </form>
   </div>
 </div>
+
+<!-- Operador responsable de la importación -->
+<?php if ($esPropietario): ?>
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2 px-3 d-flex flex-wrap align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2 flex-grow-1">
+      <i class="bi bi-building text-secondary"></i>
+      <?php if (!empty($imp['operador_nombre'])): ?>
+        <span class="fw-semibold small"><?= h($imp['operador_nombre']) ?></span>
+        <?php if (!empty($imp['operador_direccion'])): ?>
+          <span class="text-muted small">· <?= h($imp['operador_direccion']) ?></span>
+        <?php endif; ?>
+      <?php else: ?>
+        <span class="text-warning small">
+          <i class="bi bi-exclamation-triangle"></i>
+          Operador responsable no configurado
+          <span class="text-muted">(Art. 9.1.h Reg. UE 1169/2011 — requerido para exportación)</span>
+        </span>
+      <?php endif; ?>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" type="button"
+            data-bs-toggle="collapse" data-bs-target="#form-operador">
+      <i class="bi bi-pencil"></i> <?= empty($imp['operador_nombre']) ? 'Configurar operador' : 'Editar' ?>
+    </button>
+  </div>
+  <div class="collapse" id="form-operador">
+    <div class="card-body border-top py-3 px-3">
+      <form method="post" class="row g-2 align-items-end">
+        <input type="hidden" name="action"  value="save_operador">
+        <input type="hidden" name="imp_id"  value="<?= $impId ?>">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold mb-1">Nombre del operador *</label>
+          <input type="text" name="operador_nombre" class="form-control form-control-sm"
+                 value="<?= h($imp['operador_nombre'] ?? '') ?>"
+                 placeholder="Ej: Carnicería García S.L.">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label small fw-semibold mb-1">Dirección</label>
+          <input type="text" name="operador_direccion" class="form-control form-control-sm"
+                 value="<?= h($imp['operador_direccion'] ?? '') ?>"
+                 placeholder="Ej: Calle Mayor 12, 28001 Madrid">
+        </div>
+        <div class="col-md-3">
+          <button type="submit" class="btn btn-primary btn-sm w-100">
+            <i class="bi bi-floppy"></i> Guardar operador
+          </button>
+        </div>
+        <div class="col-12">
+          <div class="form-text text-muted">
+            Este operador se aplicará automáticamente a todos los productos de esta importación en la exportación.
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
 
 <!-- Stats rápidos -->
 <div class="row g-3 mb-3">

@@ -118,6 +118,17 @@ class Sugerencias {
                 'Mortadela.',
             ],
         ],
+        'pack' => [
+            '_' => [
+                'Pack de productos cárnicos.',
+                'Lote de productos cárnicos.',
+                'Cesta de productos cárnicos.',
+                'Pack regalo de carnes.',
+                'Selección de carnes premium.',
+                'Surtido de productos cárnicos seleccionados.',
+                'Pack especial de carnes y complementos.',
+            ],
+        ],
         'otro' => [
             '_' => ['Preparación alimenticia de origen animal.'],
         ],
@@ -172,6 +183,11 @@ class Sugerencias {
             'Conservar en lugar fresco y seco. Una vez abierto, conservar refrigerado entre 2 y 6 ºC y consumir en 3-5 días.',
             'Conservar refrigerado entre 2 y 6 ºC.',
             'Conservar a temperatura ambiente. Una vez abierto, refrigerar y consumir en 5 días.',
+        ],
+        'pack' => [
+            'Conservar los productos refrigerados entre 0 y 4 ºC según indicaciones de cada componente.',
+            'Conservar en refrigeración. Consultar la fecha de consumo preferente de cada componente.',
+            'Conservar en lugar fresco. Los componentes cárnicos requieren refrigeración entre 0 y 4 ºC.',
         ],
         '_' => ['Conservar refrigerado entre 0 y 4 ºC.'],
     ];

@@ -20,9 +20,11 @@ CREATE TABLE IF NOT EXISTS `importaciones` (
   `usuario_id`     INT UNSIGNED NOT NULL,
   `nombre_archivo` VARCHAR(255) NOT NULL,
   `fecha`          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `total`          INT          NOT NULL DEFAULT 0,
-  `ok`             INT          NOT NULL DEFAULT 0,
-  `incompletos`    INT          NOT NULL DEFAULT 0,
+  `total`              INT          NOT NULL DEFAULT 0,
+  `ok`                 INT          NOT NULL DEFAULT 0,
+  `incompletos`        INT          NOT NULL DEFAULT 0,
+  `operador_nombre`    VARCHAR(200) DEFAULT NULL,
+  `operador_direccion` VARCHAR(300) DEFAULT NULL,
   PRIMARY KEY (`id`),
   CONSTRAINT `fk_imp_usr` FOREIGN KEY (`usuario_id`) REFERENCES `usuarios`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
