@@ -9,22 +9,24 @@ class Exporter {
     public static function generarBloqueAesan(array $campos, string $tipo): string {
         $c = $campos;
 
-        // Alérgenos resaltados
+        // ── Ingredientes con alérgenos resaltados DENTRO de la lista ──────────
+        // Reglamento (UE) 1169/2011, Art. 21: los alérgenos deben destacarse
+        // tipográficamente EN la lista de ingredientes
         $ingredientesHtml = '';
         if (!empty($c['ingredientes'])) {
             $ingredientesHtml = Validator::resaltarAlergenos(htmlspecialchars($c['ingredientes']));
         }
 
-        // Bloque nutricional
+        // ── Tabla nutricional ─────────────────────────────────────────────────
         $nutricionalHtml = '';
-        if (!empty($c['energia_kcal'])) {
-            $nutricionalHtml = self::tablanutricional($c);
+        if (!empty($c['energia_kcal']) || !empty($c['energia_kj'])) {
+            $nutricionalHtml = self::tablaNutricional($c);
         }
 
-        // Origen según especie
+        // ── Origen según especie ──────────────────────────────────────────────
         $origenHtml = self::bloqueOrigen($c);
 
-        // Alérgenos lista
+        // ── "Contiene:" — refuerzo adicional (útil cuando la lista es larga) ──
         $alergenosHtml = '';
         if (!empty($c['alergenos_lista'])) {
             $lista = is_array($c['alergenos_lista'])
@@ -36,11 +38,17 @@ class Exporter {
                     fn($a) => '<strong>' . htmlspecialchars(Validator::labelAlergeno($a)) . '</strong>',
                     $lista
                 ));
-                $alergenosHtml = "<p class=\"aesan-alergenos\"><strong>Contiene:</strong> {$items}</p>";
+                // Nota: cuando hay lista de ingredientes, "Contiene:" es redundante pero se mantiene
+                // como refuerzo visual. El Art. 21 requiere el destacado en la propia lista.
+                $nota = $ingredientesHtml
+                    ? ' <span style="font-size:.85em;color:#666">(destacados en la lista de ingredientes)</span>'
+                    : '';
+                $alergenosHtml = "<p class=\"aesan-alergenos\"><strong>Contiene:</strong> {$items}{$nota}</p>";
             }
         }
 
-        // Descongelado / fecha de congelación (Reglamento (UE) 1169/2011 Anexo VI y Anexo X pt.3)
+        // ── Estado congelación / descongelado ─────────────────────────────────
+        // Reglamento (UE) 1169/2011, Anexo VI y Anexo X pto. 3
         $estadoCongHtml = '';
         $estadoCong = $c['estado_producto'] ?? '';
         if ($estadoCong === 'descongelado') {
@@ -52,51 +60,98 @@ class Exporter {
                 . '</p>';
         }
 
-        // Conservación
+        // ── Conservación ──────────────────────────────────────────────────────
         $conservHtml = '';
         if (!empty($c['conservacion'])) {
             $conservHtml = '<p class="aesan-conservacion"><strong>Conservación:</strong> '
                 . htmlspecialchars($c['conservacion']) . '</p>';
         }
 
-        // Instrucción de uso
+        // ── Instrucción de uso / cocinado ─────────────────────────────────────
         $usoHtml = '';
         if (!empty($c['instruccion_uso'])) {
             $usoHtml = '<p class="aesan-uso"><strong>Instrucciones de uso:</strong> '
                 . htmlspecialchars($c['instruccion_uso']) . '</p>';
         }
 
-        // Denominación
+        // ── Denominación legal ────────────────────────────────────────────────
+        // Reglamento (UE) 1169/2011, Anexo VI, Parte B:
+        // Para carne picada y hamburguesas la denominación DEBE incluir
+        // el contenido máximo en materia grasa y la relación colágeno/proteínas
         $denomHtml = '';
         if (!empty($c['denominacion'])) {
+            $denom = $c['denominacion'];
+            if (in_array($tipo, ['carne_picada', 'preparado_carne'])) {
+                $lg = trim($c['limite_grasa']    ?? '');
+                $lc = trim($c['limite_colageno'] ?? '');
+                if ($lg || $lc) {
+                    $limites = [];
+                    if ($lg) $limites[] = "contenido máximo en materia grasa: {$lg}%";
+                    if ($lc) $limites[] = "relación colágeno/proteínas: {$lc}%";
+                    $denom = rtrim($denom, '.') . ' (' . implode('; ', $limites) . ').';
+                }
+            }
             $denomHtml = '<p class="aesan-denominacion"><strong>Denominación:</strong> '
-                . htmlspecialchars($c['denominacion']) . '</p>';
+                . htmlspecialchars($denom) . '</p>';
         }
 
-        // Peso
+        // ── Peso neto ─────────────────────────────────────────────────────────
         $pesoHtml = '';
         if (!empty($c['peso_unidad'])) {
             $pesoHtml = '<p class="aesan-peso"><strong>Peso neto:</strong> '
                 . htmlspecialchars($c['peso_unidad']) . '</p>';
         }
 
-        // Embeber campos + tipo codificados para que un re-import los restaure automáticamente
+        // ── Operador responsable ──────────────────────────────────────────────
+        // Reglamento (UE) 1169/2011, Art. 9.1.h y Art. 8.1: obligatorio
+        $operadorHtml = '';
+        if (!empty($c['operador_nombre'])) {
+            $op = htmlspecialchars($c['operador_nombre']);
+            if (!empty($c['operador_direccion'])) {
+                $op .= ' · ' . htmlspecialchars($c['operador_direccion']);
+            }
+            $operadorHtml = "<p class=\"aesan-operador\"><strong>Responsable:</strong> {$op}</p>";
+        }
+
+        // ── Aviso si hay aditivos registrados que no aparecen en ingredientes ─
+        $avisosHtml = '';
+        $aditivos = trim($c['aditivos'] ?? '');
+        if ($aditivos && !empty($c['ingredientes'])) {
+            $ingLower      = strtolower($c['ingredientes']);
+            $noEncontrados = [];
+            foreach (preg_split('/[,;]+/', $aditivos) as $ad) {
+                $ad = trim($ad);
+                if ($ad && !str_contains($ingLower, strtolower(mb_substr($ad, 0, 12)))) {
+                    $noEncontrados[] = $ad;
+                }
+            }
+            if ($noEncontrados) {
+                $avisosHtml = "<!-- ⚠ REVISAR ANTES DE PUBLICAR: Los siguientes aditivos están registrados "
+                    . "pero NO se detectan en la lista de ingredientes visible. "
+                    . "Inclúyelos en la lista de ingredientes: "
+                    . htmlspecialchars(implode('; ', $noEncontrados)) . " -->\n";
+            }
+        }
+
+        // ── Ensamblar bloque HTML ─────────────────────────────────────────────
         $html  = "\n<!-- AESAN_BLOCK_START -->\n";
         $html .= '<!-- AESAN_CAMPOS:' . base64_encode(json_encode(array_merge($campos, ['tipo_validado' => $tipo]))) . " -->\n";
+        if ($avisosHtml) $html .= $avisosHtml;
         $html .= "<div class=\"info-alimentaria\">\n";
         $html .= "  <h3>Información alimentaria</h3>\n";
-        if ($estadoCongHtml)  $html .= "  {$estadoCongHtml}\n";
-        if ($denomHtml)       $html .= "  {$denomHtml}\n";
+        if ($estadoCongHtml)   $html .= "  {$estadoCongHtml}\n";
+        if ($denomHtml)        $html .= "  {$denomHtml}\n";
         if ($ingredientesHtml) {
             $html .= "  <p class=\"aesan-ingredientes\"><strong>Ingredientes:</strong> "
                   . $ingredientesHtml . "</p>\n";
         }
-        if ($alergenosHtml)   $html .= "  {$alergenosHtml}\n";
-        if ($origenHtml)      $html .= "  {$origenHtml}\n";
-        if ($conservHtml)     $html .= "  {$conservHtml}\n";
-        if ($usoHtml)         $html .= "  {$usoHtml}\n";
-        if ($pesoHtml)        $html .= "  {$pesoHtml}\n";
-        if ($nutricionalHtml) $html .= "  {$nutricionalHtml}\n";
+        if ($alergenosHtml)    $html .= "  {$alergenosHtml}\n";
+        if ($origenHtml)       $html .= "  {$origenHtml}\n";
+        if ($conservHtml)      $html .= "  {$conservHtml}\n";
+        if ($usoHtml)          $html .= "  {$usoHtml}\n";
+        if ($pesoHtml)         $html .= "  {$pesoHtml}\n";
+        if ($nutricionalHtml)  $html .= "  {$nutricionalHtml}\n";
+        if ($operadorHtml)     $html .= "  {$operadorHtml}\n";
         $html .= "</div>\n";
         $html .= "<!-- AESAN_BLOCK_END -->\n";
 

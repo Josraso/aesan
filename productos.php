@@ -307,13 +307,11 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
                    class="btn btn-outline-primary" title="<?= $locked?'Ver (en edición)':'Editar' ?>">
                   <i class="bi bi-<?= $locked?'eye':'pencil' ?>"></i>
                 </a>
-                <?php if ($p['estado']==='ok'): ?>
                 <button type="button" class="btn btn-outline-secondary btn-preview-desc"
                         data-id="<?= $p['id'] ?>" data-imp="<?= $impId ?>"
                         title="Vista previa descripción final">
                   <i class="bi bi-eye"></i>
                 </button>
-                <?php endif; ?>
                 <button type="button" class="btn btn-outline-danger btn-delete-prod"
                         data-id="<?= $p['id'] ?>" data-nombre="<?= h($p['nombre']) ?>"
                         title="Eliminar producto">

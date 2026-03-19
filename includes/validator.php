@@ -206,8 +206,8 @@ class Validator {
     public static function resaltarAlergenos(string $ingredientes): string {
         foreach (self::ALERGENOS as $terminos) {
             foreach ($terminos as $t) {
-                $pattern = '/\b(' . preg_quote($t, '/') . ')\b/i';
-                $ingredientes = preg_replace($pattern, '<strong class="alergeno">$1</strong>', $ingredientes);
+                $pattern = '/\b(' . preg_quote($t, '/') . ')\b/iu';
+                $ingredientes = preg_replace($pattern, '<strong class="alergeno" style="font-weight:bold;text-decoration:underline">$1</strong>', $ingredientes);
             }
         }
         return $ingredientes;

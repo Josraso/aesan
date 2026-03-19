@@ -325,6 +325,24 @@ window.BASE_URL    = '<?= BASE_URL ?>';
           </div>
         </div>
 
+        <div class="col-md-8">
+          <label class="form-label">Operador responsable
+            <i class="bi bi-info-circle small" data-bs-toggle="tooltip"
+               title="Reglamento (UE) 1169/2011, Art. 9.1.h — nombre y dirección del operador responsable de la información alimentaria (obligatorio)"></i>
+          </label>
+          <input type="text" name="operador_nombre" id="operador_nombre" class="form-control"
+                 value="<?= h($campos['operador_nombre'] ?? '') ?>"
+                 placeholder="Ej: Carnicería García S.L.">
+          <div class="form-text text-muted">Nombre del operador responsable de la información alimentaria.</div>
+        </div>
+
+        <div class="col-md-8">
+          <label class="form-label">Dirección del operador</label>
+          <input type="text" name="operador_direccion" id="operador_direccion" class="form-control"
+                 value="<?= h($campos['operador_direccion'] ?? '') ?>"
+                 placeholder="Ej: Calle Mayor 12, 28001 Madrid">
+        </div>
+
         <?php if ($sugerencia && $sugerencia !== $prod['desc_corta_original']): ?>
         <div class="col-12">
           <div class="alert alert-warning">
@@ -755,6 +773,19 @@ window.BASE_URL    = '<?= BASE_URL ?>';
       </div>
     </div>
 
+    <!-- Vista previa -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-header bg-white fw-semibold small">
+        <i class="bi bi-eye"></i> Vista previa
+      </div>
+      <div class="card-body p-2">
+        <p class="small text-muted mb-2">Ve cómo quedará la ficha con los datos guardados hasta ahora.</p>
+        <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btn-sidebar-preview">
+          <i class="bi bi-eye"></i> Ver cómo queda ahora
+        </button>
+      </div>
+    </div>
+
     <!-- Descripción original -->
     <div class="card shadow-sm mb-3">
       <div class="card-header bg-white fw-semibold small d-flex justify-content-between">
@@ -947,6 +978,65 @@ document.getElementById('btn-forzar-edicion')?.addEventListener('click', () => {
   fetch(`${window.BASE_URL}/lock.php`, { method:'POST', body:fd })
     .then(() => location.reload());
 });
+
+// ── Paso 5 preview inline ─────────────────────────────────────────────────────
+document.getElementById('btn-preview')?.addEventListener('click', () => {
+  const form = document.getElementById('wizard-form');
+  const fd   = new FormData(form);
+  fd.set('action', 'preview');
+  fetch(location.href, { method:'POST', body:fd })
+    .then(r => r.json())
+    .then(d => {
+      const box = document.getElementById('aesan-preview');
+      if (!box) return;
+      box.innerHTML = d.html;
+      box.classList.remove('d-none');
+    });
+});
+
+// ── Sidebar preview (todos los pasos) ────────────────────────────────────────
+document.getElementById('btn-sidebar-preview')?.addEventListener('click', () => {
+  const impId = <?= $impId ?>;
+  const prodId = window.PROD_ID;
+  fetch(`${window.BASE_URL}/productos.php?imp=${impId}&preview_id=${prodId}`)
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('sp-preview-nombre').textContent = d.nombre;
+      document.getElementById('sp-preview-render').innerHTML   = d.html;
+      document.getElementById('sp-preview-html').value         = d.html;
+      new bootstrap.Modal(document.getElementById('modalSidebarPreview')).show();
+    });
+});
 </script>
+
+<!-- Modal Vista Previa (sidebar) -->
+<div class="modal fade" id="modalSidebarPreview" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-eye"></i> Vista previa — <span id="sp-preview-nombre"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <ul class="nav nav-tabs mb-3">
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#sp-tab-render">Vista</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#sp-tab-html">HTML</button></li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="sp-tab-render">
+            <div id="sp-preview-render" class="p-2 border rounded bg-white"></div>
+          </div>
+          <div class="tab-pane fade" id="sp-tab-html">
+            <textarea id="sp-preview-html" class="form-control font-monospace" rows="20" readonly style="font-size:.8rem"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span class="text-muted small me-auto"><i class="bi bi-info-circle"></i> Muestra el estado guardado del producto.</span>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?php layout_end(); ?>
