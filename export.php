@@ -10,19 +10,32 @@ require_once __DIR__ . '/includes/historial.php';
 
 Auth::check();
 
-$ids   = array_map('intval', $_POST['ids']   ?? []);
-$impId = (int)($_POST['imp_id'] ?? 0);
+$ids       = array_map('intval', $_POST['ids']      ?? []);
+$impId     = (int)($_POST['imp_id']    ?? 0);
+$exportAll = !empty($_POST['export_all']);
 
-if (!$ids || !$impId) {
+if (!$impId) {
     flash('No hay productos seleccionados.', 'error');
-    redirect("productos.php?imp={$impId}");
+    redirect('dashboard.php');
 }
 
-$in    = implode(',', $ids);
-$prods = DB::rows(
-    "SELECT * FROM productos WHERE id IN ($in) AND importacion_id=? AND estado='ok'",
-    [$impId]
-);
+if ($exportAll) {
+    // Exportar TODOS los productos completos de la importación (ignora paginación)
+    $prods = DB::rows(
+        "SELECT * FROM productos WHERE importacion_id=? AND estado='ok' ORDER BY nombre",
+        [$impId]
+    );
+} else {
+    if (!$ids) {
+        flash('No hay productos seleccionados.', 'error');
+        redirect("productos.php?imp={$impId}");
+    }
+    $in    = implode(',', $ids);
+    $prods = DB::rows(
+        "SELECT * FROM productos WHERE id IN ($in) AND importacion_id=? AND estado='ok'",
+        [$impId]
+    );
+}
 
 if (!$prods) {
     flash('Los productos seleccionados no están completos o no pertenecen a esta importación.', 'warning');

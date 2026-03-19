@@ -26,6 +26,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
         $wp = Auth::isAdmin() ? [$delId] : [$delId, Auth::uid()];
         $imp = DB::row("SELECT id FROM importaciones WHERE $wh", $wp);
         if ($imp) {
+            // Limpiar tablas sin FK CASCADE antes de borrar la importación
+            try {
+                DB::q('DELETE pb FROM producto_bloqueos pb
+                       JOIN productos p ON p.id = pb.producto_id
+                       WHERE p.importacion_id = ?', [$delId]);
+            } catch (\Exception $e) {}
+            try {
+                DB::q('DELETE FROM importacion_colaboradores WHERE importacion_id = ?', [$delId]);
+            } catch (\Exception $e) {}
+
             DB::q('DELETE FROM importaciones WHERE id=?', [$delId]);
             flash('Importación y sus productos eliminados correctamente.', 'success');
         } else {

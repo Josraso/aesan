@@ -35,6 +35,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='preview') {
 // ── GUARDAR ──────────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
 
+    // Chequeo server-side del bloqueo (evita guardar si otro usuario lo editó)
+    try {
+        $lockChk = DB::row('SELECT * FROM producto_bloqueos WHERE producto_id=?', [$prodId]);
+        if ($lockChk && (int)$lockChk['usuario_id'] !== Auth::uid()) {
+            flash('No se puede guardar: <strong>' . h($lockChk['usuario_nombre']) . '</strong> está editando este producto ahora mismo.', 'error');
+            redirect("producto.php?id={$prodId}&imp={$impId}&paso={$paso}");
+        }
+    } catch (\Exception $e) {}
+
     $camposAntes = $campos;
 
     $nuevos = $_POST;
@@ -111,6 +120,15 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
 $bloqueado    = false;
 $bloqueadoPor = null;
 try {
+    // Auto-crear tabla si no existe (evita fallo silencioso en instancias sin migración)
+    DB::q("CREATE TABLE IF NOT EXISTS `producto_bloqueos` (
+              `producto_id`    INT UNSIGNED NOT NULL,
+              `usuario_id`     INT UNSIGNED NOT NULL,
+              `usuario_nombre` VARCHAR(100) NOT NULL,
+              `updated_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              PRIMARY KEY (`producto_id`)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
     DB::q("DELETE FROM producto_bloqueos WHERE TIMESTAMPDIFF(SECOND, updated_at, NOW()) > 90");
     $lockRow = DB::row('SELECT * FROM producto_bloqueos WHERE producto_id=?', [$prodId]);
     if ($lockRow && (int)$lockRow['usuario_id'] !== Auth::uid()) {
@@ -125,7 +143,7 @@ try {
                  updated_at=NOW()",
               [$prodId, Auth::uid(), Auth::nombre()]);
     }
-} catch (\Exception $e) { /* tabla no existe aún → ignorar */ }
+} catch (\Exception $e) { /* error inesperado → continuar sin bloqueo */ }
 
 // ── Recargar producto ─────────────────────────────────────────────────────────
 $prod   = DB::row('SELECT * FROM productos WHERE id=?', [$prodId]);
@@ -216,7 +234,7 @@ window.BASE_URL    = '<?= BASE_URL ?>';
 <div class="row g-4">
   <!-- Formulario principal -->
   <div class="col-lg-8">
-    <form method="post" id="wizard-form" <?= $bloqueado ? 'style="pointer-events:none;opacity:.75"' : '' ?>>
+    <form method="post" id="wizard-form">
       <input type="hidden" name="action" value="save">
       <input type="hidden" name="paso"   value="<?= $paso ?>">
       <input type="hidden" name="tipo_validado" id="tipo_validado_hidden" value="<?= h($tipo) ?>">
@@ -883,6 +901,25 @@ if (btnMismoPais && inputMismoPais) {
     if (e.key === 'Enter') { e.preventDefault(); btnMismoPais.click(); }
   });
 }
+
+// ── Bloqueo: deshabilitar formulario completamente si está bloqueado ──────────
+<?php if ($bloqueado): ?>
+(function() {
+  const form = document.getElementById('wizard-form');
+  if (!form) return;
+  // Deshabilitar todos los controles de formulario
+  form.querySelectorAll('input, select, textarea, button').forEach(el => {
+    el.disabled = true;
+  });
+  // Deshabilitar enlaces de navegación (Siguiente / Anterior dentro del form)
+  form.querySelectorAll('a.btn').forEach(el => {
+    el.addEventListener('click', e => e.preventDefault());
+    el.classList.add('disabled');
+    el.setAttribute('aria-disabled','true');
+  });
+  form.style.opacity = '0.72';
+})();
+<?php endif; ?>
 
 // ── Bloqueo: heartbeat cada 30 s ─────────────────────────────────────────────
 <?php if (!$bloqueado): ?>

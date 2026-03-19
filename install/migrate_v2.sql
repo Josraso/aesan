@@ -20,5 +20,10 @@ CREATE TABLE IF NOT EXISTS `importacion_colaboradores` (
   `usuario_id`     INT UNSIGNED NOT NULL,
   `creado_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uniq_imp_usr` (`importacion_id`, `usuario_id`)
+  UNIQUE KEY `uniq_imp_usr` (`importacion_id`, `usuario_id`),
+  CONSTRAINT `fk_ic_imp` FOREIGN KEY (`importacion_id`) REFERENCES `importaciones`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Si la tabla ya existía sin FK, añadirla (instancias actualizadas desde v1)
+-- Ejecutar sólo si no existe ya:
+-- ALTER TABLE `importacion_colaboradores` ADD CONSTRAINT `fk_ic_imp` FOREIGN KEY (`importacion_id`) REFERENCES `importaciones`(`id`) ON DELETE CASCADE;

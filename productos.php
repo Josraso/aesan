@@ -199,7 +199,21 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
   </div>
 </form>
 
-<!-- Tabla + exportación -->
+<!-- Exportar todos los completos (fuera de la paginación) -->
+<?php if ($cOk > 0): ?>
+<form method="post" action="<?= BASE_URL ?>/export.php" class="mb-2">
+  <input type="hidden" name="imp_id"      value="<?= $impId ?>">
+  <input type="hidden" name="export_all"  value="1">
+  <button type="submit" class="btn btn-success">
+    <i class="bi bi-download"></i>
+    Exportar todos los completos
+    <span class="badge bg-white text-success ms-1"><?= $cOk ?></span>
+  </button>
+  <span class="text-muted small ms-2">Exporta los <?= $cOk ?> producto(s) al 100% sin importar la página en que estén.</span>
+</form>
+<?php endif; ?>
+
+<!-- Tabla + exportación por selección -->
 <form id="form-exportar" method="post" action="<?= BASE_URL ?>/export.php">
   <input type="hidden" name="imp_id" value="<?= $impId ?>">
   <div class="card shadow-sm">
