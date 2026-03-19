@@ -561,26 +561,31 @@ window.BASE_URL    = '<?= BASE_URL ?>';
         <div class="col-12">
           <label class="form-label fw-semibold">
             Alérgenos
-            <span class="text-muted fw-normal small">(marca/desmarca — la detección automática sugiere sin sobreescribir)</span>
+            <span class="text-muted fw-normal small">(marca o desmarca los que correspondan — la detección sugiere pero no fuerza)</span>
           </label>
 
-          <!-- "Sin alérgenos" declaración explícita -->
+          <!-- "Sin alérgenos": checkbox nativo envuelto en label -->
           <div class="mb-2">
-            <button type="button" class="alg-tag alg-ninguno <?= $sinAlergenos ? 'active' : '' ?>"
-                    id="tag-ninguno" data-alg="ninguno"
-                    style="background:<?= $sinAlergenos ? '#198754' : '' ?>;color:<?= $sinAlergenos ? '#fff' : '' ?>">
+            <label class="alg-tag alg-ninguno <?= $sinAlergenos ? 'active' : '' ?>"
+                   id="label-ninguno"
+                   style="<?= $sinAlergenos ? 'background:#198754;color:#fff;border-color:#198754' : '' ?>">
+              <input type="checkbox" id="chk-ninguno" class="visually-hidden"
+                     value="ninguno" <?= $sinAlergenos ? 'checked' : '' ?>>
               <i class="bi bi-shield-check"></i> Sin alérgenos (declarar ausencia)
-            </button>
+            </label>
           </div>
 
-          <div class="mb-2" id="wrap-alg-tags" <?= $sinAlergenos ? 'style="opacity:.4;pointer-events:none"' : '' ?>>
+          <!-- Los 14 alérgenos del Anexo II — checkboxes nativos -->
+          <div id="wrap-alg-tags" <?= $sinAlergenos ? 'style="opacity:.4;pointer-events:none"' : '' ?>>
             <?php foreach (Validator::ALERGENOS as $key => $terms): ?>
-            <button type="button" class="alg-tag <?= in_array($key,$algsGuardados)?'active':'' ?>" data-alg="<?= $key ?>">
+            <label class="alg-tag <?= in_array($key,$algsGuardados)?'active':'' ?>">
+              <input type="checkbox" class="alg-chk visually-hidden" value="<?= $key ?>"
+                     <?= in_array($key,$algsGuardados)?'checked':'' ?>>
               <?= Validator::labelAlergeno($key) ?>
-            </button>
+            </label>
             <?php endforeach; ?>
           </div>
-          <div id="alg-hint" class="small text-muted mb-2"></div>
+          <div id="alg-hint" class="small text-muted mt-1 mb-1"></div>
           <input type="hidden" name="alergenos_lista" id="alergenos_lista"
                  value="<?= h($algsVal) ?>">
         </div>
@@ -1007,82 +1012,93 @@ document.addEventListener('click', e => {
   if (ap) { appendToField(ap.dataset.campo, ap.dataset.val); return; }
 });
 
-// ── Alérgenos: detección automática + tags ────────────────────────────────────
+// ── Alérgenos ─────────────────────────────────────────────────────────────────
+// Usa checkboxes nativos (<label>+<input type="checkbox">) para el toggle —
+// el comportamiento de click lo garantiza el navegador sin depender de JS.
+// JS solo sincroniza el campo oculto y gestiona "Sin alérgenos" + sugerencias.
 (function() {
-  const ALERGENOS  = window.ALERGENOS || {};
-  const hiddenAlg  = document.getElementById('alergenos_lista');
-  const wrapTags   = document.getElementById('wrap-alg-tags');
-  const tagNinguno = document.getElementById('tag-ninguno');
-  const hintEl     = document.getElementById('alg-hint');
-  if (!hiddenAlg) return;
+  const hiddenAlg   = document.getElementById('alergenos_lista');
+  const wrapTags    = document.getElementById('wrap-alg-tags');
+  const labelNinguno= document.getElementById('label-ninguno');
+  const chkNinguno  = document.getElementById('chk-ninguno');
+  if (!hiddenAlg) return; // no estamos en paso 3
 
-  function getActiveTags() {
-    return [...document.querySelectorAll('#wrap-alg-tags .alg-tag.active[data-alg]')]
-      .map(t => t.dataset.alg);
+  const ALERGENOS = window.ALERGENOS || {};
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function getChecked() {
+    return [...(wrapTags?.querySelectorAll('.alg-chk:checked') ?? [])].map(c => c.value);
   }
 
   function syncHidden() {
-    const sinAlg = tagNinguno?.classList.contains('active');
-    hiddenAlg.value = sinAlg ? 'ninguno' : getActiveTags().join(',');
+    hiddenAlg.value = chkNinguno?.checked ? 'ninguno' : getChecked().join(',');
   }
 
-  // Toggle tag individual — siempre funciona, nunca lo sobreescribe la detección
-  wrapTags?.querySelectorAll('.alg-tag[data-alg]').forEach(tag => {
-    tag.addEventListener('click', () => {
-      if (tagNinguno?.classList.contains('active')) return; // bloqueado por "ninguno"
-      tag.classList.toggle('active');
+  function setNingunoStyle(on) {
+    if (!labelNinguno) return;
+    labelNinguno.classList.toggle('active', on);
+    labelNinguno.style.background  = on ? '#198754' : '';
+    labelNinguno.style.color       = on ? '#fff'    : '';
+    labelNinguno.style.borderColor = on ? '#198754' : '';
+  }
+
+  function setWrapDisabled(disabled) {
+    if (!wrapTags) return;
+    wrapTags.style.opacity      = disabled ? '0.4' : '';
+    wrapTags.style.pointerEvents= disabled ? 'none': '';
+  }
+
+  // ── Checkboxes individuales (toggle nativo + sync) ──────────────────────
+  wrapTags?.querySelectorAll('.alg-chk').forEach(chk => {
+    chk.addEventListener('change', () => {
+      chk.closest('.alg-tag').classList.toggle('active', chk.checked);
+      // Desactivar "ninguno" si se marca cualquier alérgeno
+      if (chk.checked && chkNinguno?.checked) {
+        chkNinguno.checked = false;
+        setNingunoStyle(false);
+        setWrapDisabled(false);
+      }
       syncHidden();
     });
   });
 
-  // Toggle "Sin alérgenos"
-  if (tagNinguno) {
-    tagNinguno.addEventListener('click', () => {
-      const active = !tagNinguno.classList.contains('active');
-      tagNinguno.classList.toggle('active', active);
-      tagNinguno.style.background = active ? '#198754' : '';
-      tagNinguno.style.color      = active ? '#fff'    : '';
-      if (wrapTags) {
-        wrapTags.style.opacity      = active ? '0.4' : '';
-        wrapTags.style.pointerEvents= active ? 'none': '';
-      }
-      if (active) {
-        wrapTags?.querySelectorAll('.alg-tag.active').forEach(t => t.classList.remove('active'));
-      }
-      syncHidden();
-    });
-  }
-
-  // ── Detección: SOLO SUGIERE — no toca las tags activas ──
-  // Muestra un banner con los encontrados y un botón "Aplicar"
-  let sugeridos = [];
-
-  function sugerirDesdeTexto(texto) {
-    if (!texto.trim() || tagNinguno?.classList.contains('active')) {
-      ocultarSugerencia(); return;
-    }
-    const lower   = texto.toLowerCase();
-    const activos = new Set(getActiveTags());
-    sugeridos = [];
-    Object.entries(ALERGENOS).forEach(([key, terms]) => {
-      const detectado = terms.some(t => lower.includes(t.toLowerCase()));
-      if (detectado && !activos.has(key)) sugeridos.push(key);
-    });
-    if (sugeridos.length > 0) {
-      mostrarSugerencia(sugeridos);
-    } else {
+  // ── Checkbox "Sin alérgenos" ─────────────────────────────────────────────
+  chkNinguno?.addEventListener('change', () => {
+    const on = chkNinguno.checked;
+    setNingunoStyle(on);
+    setWrapDisabled(on);
+    if (on) {
+      wrapTags?.querySelectorAll('.alg-chk').forEach(c => {
+        c.checked = false;
+        c.closest('.alg-tag').classList.remove('active');
+      });
       ocultarSugerencia();
     }
-  }
+    syncHidden();
+  });
+
+  // ── Sincronizar al enviar (por si acaso) ─────────────────────────────────
+  document.getElementById('wizard-form')?.addEventListener('submit', syncHidden);
+
+  // ── Sugerencias automáticas (SOLO sugiere, nunca fuerza) ─────────────────
+  let sugeridos = [];
 
   function labelAlg(key) {
-    const labels = {
-      gluten:'Gluten',crustaceos:'Crustáceos',huevos:'Huevos',pescado:'Pescado',
-      cacahuetes:'Cacahuetes',soja:'Soja',lacteos:'Lácteos',frutos_secos:'Frutos secos',
-      apio:'Apio',mostaza:'Mostaza',sesamo:'Sésamo',sulfitos:'Sulfitos',
-      altramuces:'Altramuces',moluscos:'Moluscos'
-    };
-    return labels[key] || key;
+    return { gluten:'Gluten', crustaceos:'Crustáceos', huevos:'Huevos',
+             pescado:'Pescado', cacahuetes:'Cacahuetes', soja:'Soja',
+             lacteos:'Lácteos', frutos_secos:'Frutos secos', apio:'Apio',
+             mostaza:'Mostaza', sesamo:'Sésamo', sulfitos:'Sulfitos',
+             altramuces:'Altramuces', moluscos:'Moluscos' }[key] ?? key;
+  }
+
+  function sugerirDesdeTexto(texto) {
+    if (!texto.trim() || chkNinguno?.checked) { ocultarSugerencia(); return; }
+    const lower   = texto.toLowerCase();
+    const activos = new Set(getChecked());
+    sugeridos = Object.entries(ALERGENOS)
+      .filter(([key, terms]) => !activos.has(key) && terms.some(t => lower.includes(t.toLowerCase())))
+      .map(([key]) => key);
+    sugeridos.length ? mostrarSugerencia(sugeridos) : ocultarSugerencia();
   }
 
   function mostrarSugerencia(lista) {
@@ -1091,13 +1107,13 @@ document.addEventListener('click', e => {
       banner = document.createElement('div');
       banner.id = 'alg-sugerencia-banner';
       banner.className = 'alert alert-warning py-2 px-3 mt-2 d-flex align-items-center justify-content-between gap-2';
-      hintEl?.parentNode.insertBefore(banner, hintEl);
+      hiddenAlg.parentNode.insertBefore(banner, hiddenAlg);
     }
-    const nombres = lista.map(labelAlg).join(', ');
     banner.innerHTML = `
-      <span class="small"><i class="bi bi-search"></i>
-        <strong>Detectado en el texto:</strong> ${nombres}
-        <span class="text-muted">(no marcados aún)</span>
+      <span class="small">
+        <i class="bi bi-search"></i>
+        <strong>Detectado en el texto:</strong> ${lista.map(labelAlg).join(', ')}
+        <span class="text-muted"> — no marcados aún</span>
       </span>
       <div class="d-flex gap-2 flex-shrink-0">
         <button type="button" class="btn btn-sm btn-warning" id="btn-aplicar-alg">
@@ -1107,31 +1123,31 @@ document.addEventListener('click', e => {
           Ignorar
         </button>
       </div>`;
-    banner.style.display = '';
-    document.getElementById('btn-aplicar-alg')?.addEventListener('click', () => {
+    document.getElementById('btn-aplicar-alg').addEventListener('click', () => {
       sugeridos.forEach(key => {
-        const tag = wrapTags?.querySelector(`.alg-tag[data-alg="${key}"]`);
-        tag?.classList.add('active');
+        const chk = wrapTags?.querySelector(`.alg-chk[value="${key}"]`);
+        if (chk && !chk.checked) {
+          chk.checked = true;
+          chk.closest('.alg-tag').classList.add('active');
+        }
       });
       syncHidden();
       ocultarSugerencia();
     });
-    document.getElementById('btn-ignorar-alg')?.addEventListener('click', ocultarSugerencia);
+    document.getElementById('btn-ignorar-alg').addEventListener('click', ocultarSugerencia);
   }
 
   function ocultarSugerencia() {
     document.getElementById('alg-sugerencia-banner')?.remove();
   }
 
-  document.getElementById('ingredientes')?.addEventListener('input',    e => sugerirDesdeTexto(e.target.value));
-  document.getElementById('contenido_pack')?.addEventListener('input',  e => sugerirDesdeTexto(e.target.value));
+  document.getElementById('ingredientes')?.addEventListener('input',   e => sugerirDesdeTexto(e.target.value));
+  document.getElementById('contenido_pack')?.addEventListener('input', e => sugerirDesdeTexto(e.target.value));
 
-  // Al cargar: restaurar estado guardado (NO auto-detectar, el usuario ya lo validó antes)
-  // Solo lanzar sugerencia si el campo está vacío (producto nuevo)
-  const algGuardado = hiddenAlg.value;
-  if (!algGuardado && tagNinguno && !tagNinguno.classList.contains('active')) {
-    const srcEl = document.getElementById('ingredientes') || document.getElementById('contenido_pack');
-    if (srcEl && srcEl.value) sugerirDesdeTexto(srcEl.value);
+  // Al cargar: sugerir solo si el producto no tiene alérgenos guardados aún
+  if (!hiddenAlg.value && !chkNinguno?.checked) {
+    const src = document.getElementById('ingredientes') ?? document.getElementById('contenido_pack');
+    if (src?.value) sugerirDesdeTexto(src.value);
   }
 })();
 
