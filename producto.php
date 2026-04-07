@@ -33,6 +33,30 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='preview') {
     exit;
 }
 
+// ── AJAX: forzar / desmarcar completo ────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='toggle_forzar_completo') {
+    header('Content-Type: application/json');
+    $c      = $campos;
+    $actual = ($c['estado_forzado'] ?? '0') === '1';
+    if ($actual) {
+        unset($c['estado_forzado']);
+        $prodData    = ['tipo_validado'=>$prod['tipo_validado'],'tipo_detectado'=>$prod['tipo_validado'],'campos_json'=>json_encode($c)];
+        $v           = Validator::validar($prodData);
+        $nuevoEstado = $v['estado'];
+    } else {
+        $c['estado_forzado'] = '1';
+        $nuevoEstado         = 'ok';
+    }
+    DB::update('productos', ['campos_json'=>json_encode($c),'estado'=>$nuevoEstado], 'id=?', [$prodId]);
+    if ($impId) {
+        $cOk  = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado="ok"',  [$impId])['c'];
+        $cInc = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado!="ok"', [$impId])['c'];
+        DB::update('importaciones', ['ok'=>$cOk,'incompletos'=>$cInc], 'id=?', [$impId]);
+    }
+    echo json_encode(['ok'=>true,'forzado'=>!$actual,'estado'=>$nuevoEstado]);
+    exit;
+}
+
 // ── GUARDAR ──────────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
 
@@ -95,6 +119,11 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action']??'')==='save') {
     $prodData    = ['tipo_validado'=>$tipoNuevo,'tipo_detectado'=>$tipoNuevo,'campos_json'=>json_encode($campos)];
     $val         = Validator::validar($prodData);
     $estadoNuevo = $val['estado'];
+
+    // Si el usuario forzó manualmente como completo, respetar ese estado
+    if (($campos['estado_forzado'] ?? '') === '1') {
+        $estadoNuevo = 'ok';
+    }
 
     DB::update('productos', [
         'tipo_validado'       => $tipoNuevo,
@@ -269,20 +298,36 @@ window.BASE_URL    = '<?= BASE_URL ?>';
 </div>
 <?php endif; ?>
 
+<?php $esForzado = ($campos['estado_forzado'] ?? '') === '1'; ?>
 <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
   <div>
     <h5 class="mb-1 fw-bold"><?= h($prod['nombre']) ?></h5>
     <span class="text-muted small">Ref: <code><?= h($prod['referencia'] ?? '–') ?></code></span>
     <span class="ms-2"><?= estadoBadge($prod['estado']) ?></span>
+    <?php if ($esForzado): ?>
+    <span class="badge ms-1" style="background:#6f42c1;color:#fff" title="Estado marcado manualmente como completo">
+      <i class="bi bi-wrench-adjustable"></i> Manual
+    </span>
+    <?php endif; ?>
     <span class="ms-1"><?= tipoBadge($tipo) ?></span>
   </div>
-  <?php if ($val['faltan_criticos']): ?>
-  <div>
-    <?php foreach (array_slice($val['faltan_criticos'],0,4) as $f): ?>
-    <span class="badge bg-danger me-1 mb-1"><i class="bi bi-exclamation-triangle"></i> <?= h($f) ?></span>
-    <?php endforeach; ?>
+  <div class="d-flex flex-wrap gap-2 align-items-start">
+    <?php if ($val['faltan_criticos'] && !$esForzado): ?>
+    <div>
+      <?php foreach (array_slice($val['faltan_criticos'],0,4) as $f): ?>
+      <span class="badge bg-danger me-1 mb-1"><i class="bi bi-exclamation-triangle"></i> <?= h($f) ?></span>
+      <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+    <button type="button" id="btn-toggle-forzado"
+            class="btn btn-sm <?= $esForzado ? 'btn-warning' : 'btn-outline-success' ?>"
+            data-prod-id="<?= $prodId ?>"
+            data-imp-id="<?= $impId ?>"
+            title="<?= $esForzado ? 'Quitar marca manual y recalcular estado' : 'Marcar como completo aunque falten campos' ?>">
+      <i class="bi bi-<?= $esForzado ? 'x-circle' : 'check-circle' ?>"></i>
+      <?= $esForzado ? 'Desmarcar completo' : 'Marcar como completo' ?>
+    </button>
   </div>
-  <?php endif; ?>
 </div>
 
 <!-- Wizard steps -->
@@ -1300,6 +1345,21 @@ window.addEventListener('beforeunload', () => {
   navigator.sendBeacon(`${window.BASE_URL}/lock.php`, fd);
 });
 <?php endif; ?>
+
+// ── Toggle forzar completo ────────────────────────────────────────────────────
+document.getElementById('btn-toggle-forzado')?.addEventListener('click', function () {
+  const btn = this;
+  btn.disabled = true;
+  const fd = new FormData();
+  fd.append('action', 'toggle_forzar_completo');
+  fetch(location.href, { method:'POST', body:fd })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) location.reload();
+      else btn.disabled = false;
+    })
+    .catch(() => { btn.disabled = false; });
+});
 
 // ── Admin: forzar edición ─────────────────────────────────────────────────────
 document.getElementById('btn-forzar-edicion')?.addEventListener('click', () => {

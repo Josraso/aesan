@@ -61,6 +61,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     redirect("productos.php?imp={$saveImpId}");
 }
 
+// ── Marcar como completo masivamente ─────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'mark_complete_bulk') {
+    $mcImpId = (int)($_POST['imp_id'] ?? 0);
+    $ids     = array_filter(array_map('intval', (array)($_POST['ids'] ?? [])));
+    if ($ids && $mcImpId) {
+        foreach ($ids as $pid) {
+            $row = DB::row('SELECT campos_json FROM productos WHERE id=? AND importacion_id=?', [$pid, $mcImpId]);
+            if (!$row) continue;
+            $c = json_decode($row['campos_json'] ?? '{}', true) ?: [];
+            $c['estado_forzado'] = '1';
+            DB::update('productos', ['campos_json'=>json_encode($c),'estado'=>'ok'], 'id=?', [$pid]);
+        }
+        $cOk  = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado="ok"',   [$mcImpId])['c'];
+        $cInc = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=? AND estado!="ok"',  [$mcImpId])['c'];
+        $tot  = (int)DB::row('SELECT COUNT(*) c FROM productos WHERE importacion_id=?', [$mcImpId])['c'];
+        DB::update('importaciones', ['total'=>$tot,'ok'=>$cOk,'incompletos'=>$cInc], 'id=?', [$mcImpId]);
+        flash(count($ids) . ' producto(s) marcado(s) como completos.', 'success');
+    }
+    redirect("productos.php?imp={$mcImpId}");
+}
+
 $imp = DB::row('SELECT i.*, u.nombre AS unom FROM importaciones i JOIN usuarios u ON u.id=i.usuario_id WHERE i.id=?', [$impId]);
 if (!$imp) { flash('Importación no encontrada.','error'); redirect('dashboard.php'); }
 
@@ -300,6 +321,9 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
         <button type="submit" id="btn-exportar" class="btn btn-success btn-sm" disabled>
           <i class="bi bi-download"></i> Exportar seleccionados
         </button>
+        <button type="button" id="btn-marcar-completo" class="btn btn-outline-success btn-sm" disabled>
+          <i class="bi bi-check-circle"></i> Marcar completos
+        </button>
         <button type="button" id="btn-eliminar-sel" class="btn btn-danger btn-sm" disabled>
           <i class="bi bi-trash3"></i> Eliminar seleccionados
         </button>
@@ -332,6 +356,8 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
             $trClass  = $p['estado']==='ok' ? 'estado-ok' : ($p['estado']==='incompleto'?'estado-incompleto':'');
             $val      = Validator::validar($p);
             $locked   = isset($bloqueos[(int)$p['id']]);
+            $pCampos  = json_decode($p['campos_json'] ?? '{}', true) ?: [];
+            $esForzado = ($pCampos['estado_forzado'] ?? '') === '1';
           ?>
           <tr class="<?= $trClass ?>">
             <td>
@@ -363,6 +389,11 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
             </td>
             <td>
               <?= estadoBadge($p['estado']) ?>
+              <?php if ($esForzado): ?>
+              <span class="badge ms-1" style="background:#6f42c1;color:#fff;font-size:.7rem" title="Marcado manualmente como completo">
+                <i class="bi bi-wrench-adjustable"></i>
+              </span>
+              <?php elseif ($val['faltan_criticos']): ?>
               <?php foreach (array_slice($val['faltan_criticos'],0,2) as $f): ?>
               <div class="text-danger" style="font-size:.75rem">
                 <i class="bi bi-exclamation-circle"></i> <?= h($f) ?>
@@ -372,6 +403,7 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
               <div class="text-muted" style="font-size:.75rem">
                 +<?= count($val['faltan_criticos'])-2 ?> más…
               </div>
+              <?php endif; ?>
               <?php endif; ?>
             </td>
             <td class="text-center">
@@ -496,27 +528,37 @@ layout_start('Productos — ' . $imp['nombre_archivo']);
   <div id="bulk-ids-container"></div>
 </form>
 
+<!-- Formulario oculto para marcar completo masivo -->
+<form id="form-mark-complete-bulk" method="post" style="display:none">
+  <input type="hidden" name="action"  value="mark_complete_bulk">
+  <input type="hidden" name="imp_id"  value="<?= $impId ?>">
+  <div id="bulk-complete-ids-container"></div>
+</form>
+
 <script>
 const BASE_URL = '<?= BASE_URL ?>';
 const IMP_ID   = <?= $impId ?>;
 
 // ── Checkboxes → habilitar/deshabilitar botones ───────────────────────────────
-const selAll       = document.getElementById('sel-all');
-const btnExportar  = document.getElementById('btn-exportar');
-const btnEliminar  = document.getElementById('btn-eliminar-sel');
+const selAll           = document.getElementById('sel-all');
+const btnExportar      = document.getElementById('btn-exportar');
+const btnEliminar      = document.getElementById('btn-eliminar-sel');
+const btnMarcarCompleto= document.getElementById('btn-marcar-completo');
 
 function updateBulkButtons() {
   const checked = document.querySelectorAll('.sel-producto:checked');
   const n = checked.length;
-  btnExportar.disabled = n === 0;
-  btnEliminar.disabled = n === 0;
+  btnExportar.disabled       = n === 0;
+  btnEliminar.disabled       = n === 0;
+  btnMarcarCompleto.disabled = n === 0;
   if (n > 0) {
-    btnEliminar.textContent = '';
-    btnEliminar.innerHTML = `<i class="bi bi-trash3"></i> Eliminar ${n} seleccionado(s)`;
-    btnExportar.innerHTML = `<i class="bi bi-download"></i> Exportar ${n} seleccionado(s)`;
+    btnEliminar.innerHTML       = `<i class="bi bi-trash3"></i> Eliminar ${n} seleccionado(s)`;
+    btnExportar.innerHTML       = `<i class="bi bi-download"></i> Exportar ${n} seleccionado(s)`;
+    btnMarcarCompleto.innerHTML = `<i class="bi bi-check-circle"></i> Marcar completos (${n})`;
   } else {
-    btnEliminar.innerHTML = '<i class="bi bi-trash3"></i> Eliminar seleccionados';
-    btnExportar.innerHTML = '<i class="bi bi-download"></i> Exportar seleccionados';
+    btnEliminar.innerHTML       = '<i class="bi bi-trash3"></i> Eliminar seleccionados';
+    btnExportar.innerHTML       = '<i class="bi bi-download"></i> Exportar seleccionados';
+    btnMarcarCompleto.innerHTML = '<i class="bi bi-check-circle"></i> Marcar completos';
   }
 }
 
@@ -545,6 +587,24 @@ btnEliminar?.addEventListener('click', () => {
     container.appendChild(inp);
   });
   document.getElementById('form-delete-bulk').submit();
+});
+
+// ── Marcar completo masivo ────────────────────────────────────────────────────
+btnMarcarCompleto?.addEventListener('click', () => {
+  const checked = [...document.querySelectorAll('.sel-producto:checked')];
+  if (!checked.length) return;
+  if (!confirm(`¿Marcar ${checked.length} producto(s) como completos?\nSe podrán exportar aunque les falten campos.`)) return;
+
+  const container = document.getElementById('bulk-complete-ids-container');
+  container.innerHTML = '';
+  checked.forEach(cb => {
+    const inp = document.createElement('input');
+    inp.type  = 'hidden';
+    inp.name  = 'ids[]';
+    inp.value = cb.value;
+    container.appendChild(inp);
+  });
+  document.getElementById('form-mark-complete-bulk').submit();
 });
 
 // ── Borrar producto individual ────────────────────────────────────────────────
