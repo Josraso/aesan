@@ -301,21 +301,36 @@ class Exporter {
     // ── Tabla nutricional HTML ───────────────────────────────────────────────
     private static function tablaNutricional(array $c): string {
         $rows = [
-            ['Valor energético', ($c['energia_kj'] ?? '') . ' kJ / ' . ($c['energia_kcal'] ?? '') . ' kcal'],
-            ['Grasas', ($c['grasas'] ?? '') . ' g'],
-            ['&nbsp;&nbsp;de las cuales saturadas', ($c['grasas_saturadas'] ?? '') . ' g'],
-            ['Hidratos de carbono', ($c['hidratos'] ?? '') . ' g'],
-            ['&nbsp;&nbsp;de los cuales azúcares', ($c['azucares'] ?? '') . ' g'],
-            ['Proteínas', ($c['proteinas'] ?? '') . ' g'],
-            ['Sal', ($c['sal'] ?? '') . ' g'],
+            ['Valor energético',            ($c['energia_kj'] ?? '') . ' kJ / ' . ($c['energia_kcal'] ?? '') . ' kcal', false],
+            ['Grasas',                      ($c['grasas'] ?? '') . ' g',           false],
+            ['de las cuales saturadas',     ($c['grasas_saturadas'] ?? '') . ' g', true],
+            ['Hidratos de carbono',         ($c['hidratos'] ?? '') . ' g',         false],
+            ['de los cuales az&uacute;cares', ($c['azucares'] ?? '') . ' g',       true],
+            ['Prote&iacute;nas',            ($c['proteinas'] ?? '') . ' g',        false],
+            ['Sal',                         ($c['sal'] ?? '') . ' g',              false],
         ];
+
+        $styleTable  = 'width:100%;border-collapse:collapse;font-size:14px;margin:8px 0 4px';
+        $styleTh     = 'padding:8px 12px;text-align:left;font-weight:600;background:#343a40;color:#ffffff';
+        $styleTdName = 'padding:6px 12px;border-bottom:1px solid #dee2e6;vertical-align:middle';
+        $styleTdVal  = 'padding:6px 12px;border-bottom:1px solid #dee2e6;vertical-align:middle;white-space:nowrap';
+        $styleCaption= 'text-align:left;font-weight:bold;font-size:13px;padding:4px 0 2px;caption-side:bottom';
+
         $tbody = '';
-        foreach ($rows as $r) {
-            $tbody .= "<tr><td>{$r[0]}</td><td>{$r[1]}</td></tr>\n";
+        foreach ($rows as [$label, $val, $sub]) {
+            $indent = $sub ? 'padding-left:28px;' : '';
+            $tbody .= "<tr>"
+                . "<td style=\"{$indent}{$styleTdName}\">{$label}</td>"
+                . "<td style=\"{$styleTdVal}\">{$val}</td>"
+                . "</tr>\n";
         }
-        return "<table class=\"tabla-nutricional\">\n"
-            . "<caption>Información nutricional (por 100 g)</caption>\n"
-            . "<thead><tr><th>Nutriente</th><th>Por 100 g</th></tr></thead>\n"
+
+        return "<table style=\"{$styleTable}\">\n"
+            . "<caption style=\"{$styleCaption}\">Informaci&oacute;n nutricional (por 100 g)</caption>\n"
+            . "<thead><tr>"
+            . "<th style=\"{$styleTh}\">Nutriente</th>"
+            . "<th style=\"{$styleTh}\">Por 100 g</th>"
+            . "</tr></thead>\n"
             . "<tbody>{$tbody}</tbody>\n"
             . "</table>\n";
     }
